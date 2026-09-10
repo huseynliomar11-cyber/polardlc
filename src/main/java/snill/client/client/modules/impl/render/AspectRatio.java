@@ -4,7 +4,6 @@ import lombok.Getter;
 import net.minecraft.util.math.MathHelper;
 import snill.client.client.modules.Module;
 import snill.client.client.modules.settings.implement.BooleanSetting;
-import snill.client.client.modules.settings.implement.FloatSetting;
 import snill.client.client.modules.settings.implement.ModeSetting;
 
 @Getter
@@ -20,12 +19,9 @@ public class AspectRatio extends Module {
             "16:10",
             "5:4",
             "1:1",
-            "21:9",
-            "32:9",
-            "Custom"
+            "21:9"
     );
 
-    private final FloatSetting customRatio = new FloatSetting("Соотношение", 1.33f, 0.30f, 3.00f, 0.05f);
     private final BooleanSetting affectHands = new BooleanSetting("Влиять на руки", true);
     private final BooleanSetting smooth = new BooleanSetting("Плавность", true);
 
@@ -33,8 +29,7 @@ public class AspectRatio extends Module {
 
     public AspectRatio() {
         super("AspectRatio", "Изменяет соотношение сторон и растягивает экран", ModuleCategory.RENDER);
-        customRatio.visible(() -> mode.is("Custom"));
-        addSettings(mode, customRatio, affectHands, smooth);
+        addSettings(mode, affectHands, smooth);
     }
 
     @Override
@@ -93,8 +88,6 @@ public class AspectRatio extends Module {
             case "5:4" -> 5.0f / 4.0f;
             case "1:1" -> 1.0f;
             case "21:9" -> 21.0f / 9.0f;
-            case "32:9" -> 32.0f / 9.0f;
-            case "Custom" -> customRatio.get();
             default -> fallback;
         };
     }
