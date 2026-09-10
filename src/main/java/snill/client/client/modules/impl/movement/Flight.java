@@ -14,7 +14,7 @@ public class Flight extends Module {
     private final FloatSetting speed = new FloatSetting("Скорость", 2.0f, 0.1f, 10.0f, 0.1f);
 
     public Flight() {
-        super("Flight", "Полёт", ModuleCategory.MOVEMENT);
+        super("Flight", "[Rage] Полёт (Небезопасно для серверов с античитом)", ModuleCategory.MOVEMENT);
         addSettings(speed);
     }
 

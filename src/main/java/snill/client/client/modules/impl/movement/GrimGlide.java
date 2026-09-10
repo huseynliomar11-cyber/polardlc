@@ -29,7 +29,7 @@ public class GrimGlide extends Module {
     private long ticksTwo = 0;
 
     public GrimGlide() {
-        super("GrimGlide", "Grim glide на элитрах", ModuleCategory.MOVEMENT);
+        super("GrimGlide", "[Rage] Экспериментальный глайд на элитрах (Небезопасно для GrimAC)", ModuleCategory.MOVEMENT);
         addSettings(mode);
     }
 

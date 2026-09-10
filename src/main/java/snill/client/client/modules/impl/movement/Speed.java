@@ -69,7 +69,7 @@ public class Speed extends Module {
     private boolean targetStatic;
 
     public Speed() {
-        super("Speed", "Различные режимы ускорения движения", ModuleCategory.MOVEMENT);
+        super("Speed", "[Rage] Режимы ускорения движения (Collision / GrimSpeed)", ModuleCategory.MOVEMENT);
         addSettings(mode, onlyPlayers, requireMoving, pauseInLiquids, pauseWhileSneaking, speedFactor, distance,
                 bypassDistance, bypassDistanceValue, bypassAngle, waterDistance, waterDistanceValue, elytraDistance, elytraDistanceValue,
                 predictMovement, predictionFactor, smoothMovement, backtrack, backtrackTicks, backtrackDistance,

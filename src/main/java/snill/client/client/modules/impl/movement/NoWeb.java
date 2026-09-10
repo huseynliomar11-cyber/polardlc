@@ -16,7 +16,7 @@ public class NoWeb extends Module {
     private final ModeSetting mode = new ModeSetting("Режим", "CakeWorld", "CakeWorld", "ReallyWorld");
 
     public NoWeb() {
-        super("NoWeb", "Убирает замедление от паутины", ModuleCategory.MOVEMENT);
+        super("NoWeb", "[Rage] Убирает замедление от паутины (Небезопасно для GrimAC)", ModuleCategory.MOVEMENT);
         addSettings(mode);
     }
 

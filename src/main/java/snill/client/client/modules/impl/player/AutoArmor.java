@@ -11,7 +11,9 @@ import net.minecraft.item.Items;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import snill.client.api.events.EventLink;
+import snill.client.api.events.implement.EventMoveInput;
 import snill.client.api.events.implement.EventUpdate;
+import snill.client.api.utils.input.MovingUtil;
 import snill.client.api.utils.player.InventoryUtils;
 import snill.client.client.modules.Module;
 import snill.client.client.modules.settings.implement.BooleanSetting;
@@ -26,8 +28,14 @@ public class AutoArmor extends Module {
     private final FloatSetting delay = new FloatSetting("Задержка (мс)", 70f, 30f, 300f, 10f)
             .visible(() -> server.is("Универсальный"));
     private final BooleanSetting blastProtection = new BooleanSetting("Приоритет Взрывозащиты", false);
+    private final BooleanSetting bypassGrim = new BooleanSetting("Обход Grim", true);
+    private final BooleanSetting openInventoryOnly = new BooleanSetting("Только в инвентаре", false);
 
     private long lastEquipTime = 0L;
+    private int bypassTicks = 0;
+    private int pendingArmorSlot = -1;
+    private int pendingFromSlot = -1;
+    private boolean pendingHasArmor = false;
 
     // Armor container slot IDs in PlayerScreenHandler:
     // 5 = Helmet, 6 = Chestplate, 7 = Leggings, 8 = Boots
@@ -41,7 +49,7 @@ public class AutoArmor extends Module {
 
     public AutoArmor() {
         super("AutoArmor", "[Все серверы / FunTime / HolyWorld] Автоматически надевает лучшую броню", ModuleCategory.PLAYER);
-        addSettings(server, blastProtection, delay);
+        addSettings(server, blastProtection, bypassGrim, openInventoryOnly, delay);
     }
 
     private long getEffectiveDelay() {
@@ -52,11 +60,35 @@ public class AutoArmor extends Module {
     }
 
     @EventLink
+    public void onMoveInput(final EventMoveInput e) {
+        if (bypassGrim.isState() && bypassTicks > 0) {
+            if (mc.player == null) return;
+            mc.player.setSprinting(false);
+            e.setForward(0);
+            e.setStrafe(0);
+            e.setJump(false);
+            e.setSneak(false);
+        }
+    }
+
+    @EventLink
     public void onUpdate(EventUpdate event) {
         if (mc.player == null || mc.world == null || mc.interactionManager == null) return;
 
         // Don't equip if in a chest, anvil, or other custom GUI
         if (mc.currentScreen != null && !(mc.currentScreen instanceof HandledScreen<?> handled && handled.getScreenHandler() instanceof PlayerScreenHandler)) {
+            return;
+        }
+
+        if (bypassGrim.isState() && bypassTicks > 0) {
+            mc.player.setSprinting(false);
+            bypassTicks--;
+            if (bypassTicks <= 0 && pendingFromSlot != -1) {
+                equipArmor(pendingArmorSlot, pendingFromSlot, pendingHasArmor);
+                pendingArmorSlot = -1;
+                pendingFromSlot = -1;
+                lastEquipTime = System.currentTimeMillis();
+            }
             return;
         }
 
@@ -91,11 +123,29 @@ public class AutoArmor extends Module {
             }
 
             if (bestSlot != -1) {
+                if (openInventoryOnly.isState() && mc.currentScreen == null) return;
+                boolean moving = MovingUtil.hasPlayerMovement() || mc.player.isSprinting();
+                if (bypassGrim.isState() && mc.currentScreen == null && moving) {
+                    pendingArmorSlot = armorContainerSlot;
+                    pendingFromSlot = bestSlot;
+                    pendingHasArmor = !currentArmor.isEmpty();
+                    bypassTicks = 2;
+                    mc.player.setSprinting(false);
+                    return;
+                }
                 equipArmor(armorContainerSlot, bestSlot, !currentArmor.isEmpty());
                 lastEquipTime = System.currentTimeMillis();
                 return; // One action per delay for GrimAC safety
             }
         }
+    }
+
+    @Override
+    public void onDisable() {
+        bypassTicks = 0;
+        pendingArmorSlot = -1;
+        pendingFromSlot = -1;
+        super.onDisable();
     }
 
     private void equipArmor(int armorContainerSlot, int fromSlot, boolean hasCurrentArmor) {

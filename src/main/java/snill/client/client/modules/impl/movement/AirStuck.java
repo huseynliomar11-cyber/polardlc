@@ -27,7 +27,7 @@ public class AirStuck extends Module {
     private boolean swapped = false;
 
     public AirStuck() {
-        super("Air Stuck", "Позволяет зависнуть в воздухе", ModuleCategory.MOVEMENT);
+        super("Air Stuck", "[Rage] Зависание в воздухе и доп. дистанция (Небезопасно для GrimAC)", ModuleCategory.MOVEMENT);
         addSettings(lonyGriefBypass, extraRangeEnabled, extraRange);
     }
     @Override
