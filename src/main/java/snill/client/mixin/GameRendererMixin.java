@@ -34,6 +34,9 @@ public abstract class GameRendererMixin {
     @Shadow
     public abstract float getFarPlaneDistance();
 
+    @Shadow
+    public abstract Camera getCamera();
+
     @Unique
     private boolean snill$renderingHand;
 
@@ -68,7 +71,7 @@ public abstract class GameRendererMixin {
 
         MotionBlur motionBlur = MotionBlur.INSTANCE;
         if (motionBlur != null && motionBlur.isEnable()) {
-            motionBlur.applyMotionBlur();
+            motionBlur.applyMotionBlur(this.getCamera());
         }
     }
 

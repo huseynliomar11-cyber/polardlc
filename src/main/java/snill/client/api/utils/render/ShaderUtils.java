@@ -45,6 +45,7 @@ public class ShaderUtils implements QClient {
     public final ShaderProgramKey skyShader = register("skyshader", "sky_shader", VertexFormats.POSITION);
     public final ShaderProgramKey skyPlasma = register("skyshader", "sky_plasma", VertexFormats.POSITION);
     public final ShaderProgramKey skySummer = register("skyshader", "sky_summer", VertexFormats.POSITION);
+    public final ShaderProgramKey motionBlur = register("motionblur", "motion_blur", VertexFormats.POSITION_TEXTURE);
 
     private ShaderProgramKey register(String shaderNamePackage, String shaderName, VertexFormat vertexFormat) {
         return new ShaderProgramKey(Identifier.of("snill", "core/" + shaderNamePackage + "/" + shaderName), vertexFormat, Defines.EMPTY);
