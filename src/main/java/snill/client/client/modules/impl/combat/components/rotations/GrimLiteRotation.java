@@ -154,8 +154,8 @@ public class GrimLiteRotation extends RotationsSystem implements QClient {
         float rotSpeed = mc.player.isGliding() && target.isGliding() ? 160F : 200F;
         RotationStorage.update(finalRot, 116, 116, 46, 46, 0, 1, Aura.clientLook.isState());
 
-        rotate = new Vec2f(finalRot.getYaw(), finalRot.getPitch());
-        lastYaw = finalRot.getYaw();
-        lastPitch = finalRot.getPitch();
+        rotate = new Vec2f(mc.player.getYaw(), mc.player.getPitch());
+        lastYaw = mc.player.getYaw();
+        lastPitch = mc.player.getPitch();
     }
 }

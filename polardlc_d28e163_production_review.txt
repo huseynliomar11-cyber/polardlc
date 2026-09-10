@@ -1,0 +1,209 @@
+Проверил коммит d28e163 и успешный запуск GitHub Actions. Предыдущие критические ошибки действительно в основном исправлены, но формально я бы пока назвал состояние release candidate / beta, а не полностью production-ready.
+
+Коммит:
+https://github.com/huseynliomar11-cyber/polardlc/commit/d28e16390c6927b7e9e1a829559e7f867b8b365e
+
+Оцениваю именно корректность и качество ПО, не эффективность обхода античитов.
+
+ПРОВЕРКА ЗАЯВЛЕННЫХ ИСПРАВЛЕНИЙ
+
+Исправление                                      Статус
+Численная устойчивость текущих профилей          Подтверждено
+Синхронизация применённых углов                   В основном исправлено
+Единое GCD-квантование                            Почти исправлено
+Валидация второго Spooky-удара                    Частично исправлено
+Сброс при щите и новой цели                       Для основных профилей
+CI/CD                                             Компиляция есть, тестов нет
+
+1. ЧИСЛЕННАЯ УСТОЙЧИВОСТЬ: ТЕКУЩИЕ НАСТРОЙКИ СТАБИЛЬНЫ
+
+Пять substeps действительно решают прежнюю проблему для текущих значений omega_n и dt = 0.05.
+
+Моя повторная проверка линеаризованной системы без noise и clamp дала:
+
+- спектральный радиус одного микрошагa: примерно 0.825–0.897;
+- спектральный радиус композиции из пяти микрошагов за tick: примерно 0.383–0.582;
+- все значения меньше 1, следовательно, детерминированная линейная часть устойчива.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/physics/SecondOrderPhysicsController.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/HolyWorldRotation.java
+
+Но комментарий в контроллере о «безусловной устойчивости для всех диапазонов параметров» неверен:
+
+- SUB_STEPS всегда равен 5;
+- dt сверху не ограничен;
+- naturalFrequency можно установить в произвольное значение;
+- setters принимают отрицательные, бесконечные и NaN-значения.
+
+Например, при большом dt или omega_n условие h <= 0.25 перестанет выполняться. Для действительно production-ready класса число substeps должно вычисляться динамически из naturalFrequency × dt, а параметры конструктора и setters — валидироваться.
+
+Также при ненулевом OU-шуме система не сходится строго к нулевой ошибке: она выходит на стационарное случайное распределение. Поэтому точнее говорить: детерминированная часть асимптотически устойчива, стохастическая — ограничена по дисперсии.
+
+2. AUTHORITATIVE STATE: УГЛЫ ИСПРАВЛЕНЫ, ДИНАМИЧЕСКОЕ СОСТОЯНИЕ — ЕЩЁ НЕТ
+
+В FunTime, HolyWorld, ReallyWorld и SuperLegit lastYaw/lastPitch теперь действительно считываются из фактически применённого состояния игрока после RotationStorage.update(). Это правильное исправление.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/FunTimeRotation.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/SuperLegitRotation.java
+
+Но остаётся небольшое рассогласование:
+
+- позиция контроллера корректируется фактическим квантованным углом;
+- внутренние velocityYaw, velocityPitch и prevAccel всё ещё соответствуют неквантованному simulated displacement.
+
+Если квантователь применил другую дельту или нулевую дельту, контроллер продолжает считать, что его рассчитанная скорость реализована полностью. Лучше добавить feedback вида reconcileAppliedDelta(appliedYawDelta, appliedPitchDelta, dt) либо возвращать из RotationStorage фактически применённый snapshot вместе с дельтой.
+
+Кроме того, в оставшихся GrimLiteRotation и SlothRotation всё ещё записывается неквантованный finalRot, а не состояние игрока. Даже если классы сейчас недоступны из списка режимов, утверждение «во всех профилях» технически пока неверно.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/GrimLiteRotation.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/SlothRotation.java
+
+3. GCD: ОСНОВНОЙ ПУТЬ ОЧИЩЕН, НО СТАРЫЙ API ОСТАЛСЯ
+
+Ручное квантование действительно удалено из HvHRotation и PredictRots.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/HvHRotation.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/PredictRots.java
+
+Но RotationsSystem.correctRotation() всё ещё выполняет самостоятельное округление через GCDUtil. Если метод не используется — лучше удалить его; если используется — двойной путь квантования по-прежнему возможен.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/RotationsSystem.java
+
+У InputQuantizer остались два edge case:
+
+1. При изменении чувствительности меняется gcd, но residual от старой сетки сохраняется. Следует хранить lastGcd и сбрасывать либо пересчитывать residual при его изменении.
+2. Pitch сначала квантуется, а потом в RotationStorage обрезается до ±89.9. Итоговое значение возле границы может перестать быть кратным GCD относительно предыдущего угла. Нужно учитывать допустимый pitch-диапазон до финального квантования.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/components/rotations/physics/InputQuantizer.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/api/storages/implement/RotationStorage.java
+
+4. SPOOKYTIME: RAYCAST ДОБАВЛЕН, НО ОБЩИЙ PIPELINE ВСЁ ЕЩЁ НЕ ЕДИНЫЙ
+
+Теперь второй удар действительно вызывает shouldAttack(), а потом обычный attack(). Проверки текущего cooldown Minecraft, дистанции, raycast и LOS применяются. Это существенное исправление.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/Aura.java
+
+Однако processSpookyTimeSecondStrike() всё ещё не проходит проверки, которые находятся в processAttack() снаружи shouldAttack():
+
+- cps <= System.currentTimeMillis();
+- attackOnEating;
+- sprint reset;
+- prepareBypassAttack().
+
+Кроме того, raycast и LOS внутри shouldAttack() намеренно пропускаются при активном rwWallBypass, поэтому утверждение о гарантированной проверке верно только при выключенном bypass.
+
+Для production-ready архитектуры лучше один метод:
+
+tryAttack(cause)
+  -> validate target
+  -> cooldown
+  -> item-use policy
+  -> sprint reset
+  -> rotation readiness
+  -> raycast/LOS policy
+  -> commit attack
+
+И обычная, Spooky и shield-break атаки должны входить через него.
+
+5. LIFECYCLE СОСТОЯНИЯ: ЦЕЛЬ И ЩИТ ИСПРАВЛЕНЫ, СМЕНА РЕЖИМА — НЕТ
+
+Сброс контроллера при блокировании и новой цели в четырёх физических профилях реализован правильно.
+
+Но Aura.rotate() просто выбирает профиль по текущей настройке. Предыдущий активный профиль нигде не запоминается. Если переключиться с одного режима на другой, а потом вернуться к прежнему при той же цели, у старого профиля могут сохраниться:
+
+- velocity;
+- acceleration;
+- OU state;
+- lastYaw/lastPitch;
+- post-attack slowdown.
+
+Поскольку trackedTarget останется тем же объектом, условие смены цели не вызовет reset(). Нужен lifecycle onDeactivate()/onActivate() либо сравнение activeRotationType на каждом tick.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/src/main/java/snill/client/client/modules/impl/combat/Aura.java
+
+Глобальный residual InputQuantizer также не сбрасывается при смене цели или профиля — только при полном stopRotation().
+
+6. CI: КОМПИЛЯЦИЯ ЗЕЛЁНАЯ, НО ЭТО ЕЩЁ НЕ ПОЛНЫЙ BUILD PIPELINE
+
+GitHub Actions для коммита успешно завершился на Java 21 — это подтверждает, что compileJava проходит.
+
+Запуск:
+https://github.com/huseynliomar11-cyber/polardlc/actions/runs/34489721454
+
+Но workflow запускает только:
+
+./gradlew compileJava --no-daemon
+
+Он не выполняет:
+
+- test;
+- создание итогового JAR;
+- check;
+- статический анализ;
+- проверку Gradle Wrapper;
+- публикацию артефакта.
+
+Workflow:
+https://github.com/huseynliomar11-cyber/polardlc/blob/d28e16390c6927b7e9e1a829559e7f867b8b365e/.github/workflows/build.yml
+
+В дереве коммита отсутствует src/test, поэтому математические утверждения пока не защищены regression-тестами.
+
+Дерево:
+https://api.github.com/repos/huseynliomar11-cyber/polardlc/git/trees/cf73aa86ee6291e425126946b2e46480d22f95c9?recursive=1
+
+Также:
+
+- gradlew закоммичен без executable-bit (100644), поэтому workflow вынужден выполнять chmod;
+- ветка main не защищена и успешный CI не является обязательным условием merge.
+
+Ветки:
+https://api.github.com/repos/huseynliomar11-cyber/polardlc/branches?per_page=100
+
+ЧТО ОБЯЗАТЕЛЬНО ДОДЕЛАТЬ ПЕРЕД PRODUCTION-READY
+
+1. Динамические substeps и валидация параметров контроллера.
+2. Единый полный attack pipeline, включая Spooky second strike.
+3. Lifecycle при смене режима и сброс residual при смене источника/цели/GCD.
+4. Удаление или переработка correctRotation().
+5. Синхронизация внутренней velocity с применённой квантованной дельтой.
+6. JUnit-тесты для stability, wrap, quantization и lifecycle.
+7. В CI запускать минимум ./gradlew clean build --no-daemon.
+8. Защитить main и сделать CI required check.
+
+ИТОГ
+
+- Компилируемый: да.
+- Текущая физическая конфигурация численно устойчива: да.
+- Предыдущие главные дефекты исправлены: в основном да.
+- Полностью production-ready: пока нет.
+
+Моя оценка текущего состояния — 7.5/10, хороший release candidate. После устранения перечисленных lifecycle/validation проблем и появления автоматических тестов его уже можно будет аргументированно назвать production-ready.
+
+
+ДОПОЛНЕНИЕ: БУДЕТ ЛИ ПОДОБНАЯ СИСТЕМА «ПОЛНЫМ БАЙПАСОМ» KILLAURA?
+
+Нет. Даже теоретически нельзя сделать вывод о «полноценном байпасе» только потому, что поворот камеры стал плавным, численно устойчивым и квантуется по чувствительности.
+
+Современная серверная защита может анализировать множество независимых сигналов, в том числе:
+
+- серверную дистанцию и геометрию попадания;
+- line-of-sight и препятствия;
+- порядок и частоту сетевых пакетов;
+- интервалы и cooldown атак;
+- связь движения, обзора и атаки;
+- скорость переключения целей;
+- статистику серий действий за длительное время;
+- рассинхронизацию клиентского и серверного состояния;
+- невозможные сочетания действий.
+
+Поэтому качественный camera controller устраняет лишь один класс программных дефектов. Он не доказывает незаметность всей системы, а топовые серверы используют меняющиеся закрытые проверки. Компиляция и математическая устойчивость тем более не являются доказательством обхода.
+
+С защитной стороны правильный подход — считать клиент недоверенным, валидировать атаки по серверному снимку состояния, объединять геометрические, временные и поведенческие сигналы, хранить телеметрию и принимать меры только при устойчивой совокупности признаков, чтобы уменьшить ложные срабатывания. Подбирать параметры или давать инструкции для обхода серверных проверок я не буду.

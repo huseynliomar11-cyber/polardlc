@@ -140,12 +140,23 @@ public class RotationStorage implements QClient {
 
     private final snill.client.client.modules.impl.combat.components.rotations.physics.InputQuantizer quantizer = new snill.client.client.modules.impl.combat.components.rotations.physics.InputQuantizer();
 
+    public static float lastAppliedYawDelta = 0.0f;
+    public static float lastAppliedPitchDelta = 0.0f;
+
+    public static void resetQuantizer() {
+        if (instance != null) {
+            instance.quantizer.reset();
+        }
+    }
+
     private boolean updateRotation(Rotation targetRotation, float yawSpeed, float pitchSpeed) {
         if (mc.player == null) return false;
 
-        Rotation currentRotation = new Rotation(mc.player);
-        float yawDelta = MathHelper.wrapDegrees(targetRotation.getYaw() - currentRotation.getYaw());
-        float pitchDelta = targetRotation.getPitch() - currentRotation.getPitch();
+        float currentYaw = mc.player.getYaw();
+        float currentPitch = mc.player.getPitch();
+
+        float yawDelta = MathHelper.wrapDegrees(targetRotation.getYaw() - currentYaw);
+        float pitchDelta = targetRotation.getPitch() - currentPitch;
 
         float clampedYaw = Math.min(Math.abs(yawDelta), yawSpeed);
         float clampedPitch = Math.min(Math.abs(pitchDelta), pitchSpeed);
@@ -153,11 +164,30 @@ public class RotationStorage implements QClient {
         float rawDeltaYaw = MathHelper.clamp(yawDelta, -clampedYaw, clampedYaw);
         float rawDeltaPitch = MathHelper.clamp(pitchDelta, -clampedPitch, clampedPitch);
 
-        // Single authoritative quantization point with residual error diffusion
-        net.minecraft.util.math.Vec2f quantized = quantizer.quantizeDelta(rawDeltaYaw, rawDeltaPitch);
+        // Bound pitch delta before quantization to prevent breaking GCD grid on bounds
+        float minPitchDelta = -89.0f - currentPitch;
+        float maxPitchDelta = 89.0f - currentPitch;
+        float boundedPitchDelta = MathHelper.clamp(rawDeltaPitch, minPitchDelta, maxPitchDelta);
 
-        float yaw = mc.player.getYaw() + quantized.x;
-        float pitch = MathHelper.clamp(mc.player.getPitch() + quantized.y, -89.9F, 89.9F);
+        // Single authoritative quantization point with residual error diffusion
+        net.minecraft.util.math.Vec2f quantized = quantizer.quantizeDelta(rawDeltaYaw, boundedPitchDelta);
+
+        float qPitch = quantized.y;
+        float gcd = GCDUtil.getGCDValue();
+        if (gcd > 0.00005f) {
+            while (currentPitch + qPitch > 89.0f && qPitch > 0) {
+                qPitch -= gcd;
+            }
+            while (currentPitch + qPitch < -89.0f && qPitch < 0) {
+                qPitch += gcd;
+            }
+        }
+
+        lastAppliedYawDelta = quantized.x;
+        lastAppliedPitchDelta = qPitch;
+
+        float yaw = currentYaw + quantized.x;
+        float pitch = currentPitch + qPitch;
         mc.player.setYaw(yaw);
         mc.player.setPitch(pitch);
 
@@ -170,6 +200,8 @@ public class RotationStorage implements QClient {
         currentPriority(0);
         FreeLookStorage.setActive(false);
         quantizer.reset();
+        lastAppliedYawDelta = 0.0f;
+        lastAppliedPitchDelta = 0.0f;
     }
 
     public boolean isRotating() {

@@ -18,10 +18,12 @@ public class InputQuantizer {
 
     private float residualYaw = 0.0f;
     private float residualPitch = 0.0f;
+    private float lastGcd = 0.0f;
 
     public void reset() {
         residualYaw = 0.0f;
         residualPitch = 0.0f;
+        lastGcd = 0.0f;
     }
 
     /**
@@ -43,6 +45,13 @@ public class InputQuantizer {
             return new Vec2f(deltaYaw, deltaPitch);
         }
 
+        // If sensitivity / GCD grid changed, reset residuals to prevent step discrepancies
+        if (Math.abs(gcd - lastGcd) > 0.00001f) {
+            residualYaw = 0.0f;
+            residualPitch = 0.0f;
+            lastGcd = gcd;
+        }
+
         // Add residual from previous step
         float xYaw = deltaYaw + residualYaw;
         float xPitch = deltaPitch + residualPitch;
@@ -51,7 +60,7 @@ public class InputQuantizer {
         float qYaw = Math.round(xYaw / gcd) * gcd;
         float qPitch = Math.round(xPitch / gcd) * gcd;
 
-        // Save remainder for next frame (theoretically bounded by [-0.5 * gcd, 0.5 * gcd])
+        // Save remainder for next frame (bounded strictly by [-0.5 * gcd, 0.5 * gcd])
         residualYaw = MathHelper.clamp(xYaw - qYaw, -0.5f * gcd, 0.5f * gcd);
         residualPitch = MathHelper.clamp(xPitch - qPitch, -0.5f * gcd, 0.5f * gcd);
 

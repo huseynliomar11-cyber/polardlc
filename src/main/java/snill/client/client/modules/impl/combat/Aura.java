@@ -259,25 +259,41 @@ public class Aura extends Module {
         }
         return bestTarget;
     }
+
+    private String lastActiveRotationType = "";
+    private LivingEntity lastTargetEntity = null;
+
+    private boolean tryAttack(LivingEntity entity, String reason) {
+        if (mc.player == null || mc.world == null || entity == null || !isValidTarget(entity)) return false;
+        if (cps > System.currentTimeMillis()) return false;
+        if (attackOnEating.isState() && mc.player.isUsingItem()) return false;
+        if (sprintReset.isState() && mc.player.isSprinting() && !sprintResetDone) {
+            needSprintReset = true;
+            return false;
+        }
+        if (sprintReset.isState() && sprintResetDone && sprintResetTicks < 1) return false;
+        if (isBypassRotationActive() && !prepareBypassAttack()) return false;
+        if (!shouldAttack()) return false;
+
+        attack();
+        resetBypassAttack();
+        sprintResetDone = false;
+        sprintResetTicks = 0;
+        return true;
+    }
+
     private void processAttack() {
         updateTarget();
         if (target != null) {
+            if (target != lastTargetEntity) {
+                RotationStorage.resetQuantizer();
+                lastTargetEntity = target;
+            }
             lastTargetRotation = new Vec2f(mc.player.getYaw(), mc.player.getPitch());
             targetLostTime = 0;
-            if (shouldAttack() && cps <= System.currentTimeMillis()) {
-                if (attackOnEating.isState() && mc.player.isUsingItem()) return;
-                if (sprintReset.isState() && mc.player.isSprinting() && !sprintResetDone) {
-                    needSprintReset = true;
-                    return;
-                }
-                if (sprintReset.isState() && sprintResetDone && sprintResetTicks < 1) return;
-                if (isBypassRotationActive() && !prepareBypassAttack()) return;
-                attack();
-                resetBypassAttack();
-                sprintResetDone = false;
-                sprintResetTicks = 0;
-            }
+            tryAttack(target, "primary");
         } else {
+            lastTargetEntity = null;
             funTimeRotation.reset();
             holyWorldRotation.reset();
             reallyWorldRotation.reset();
@@ -309,15 +325,25 @@ public class Aura extends Module {
 
     private void processSpookyTimeSecondStrike() {
         if (!rotationType.is("SpookyTime") || !spookyTimeRotation.consumeSecondStrike()) return;
-        if (target == null || !isValidTarget(target)) return;
-        if (!shouldAttack()) return;
-
-        attack();
+        tryAttack(target, "spooky_second");
     }
 
     public void Rotate() { rotate(); }
     private void rotate() {
         if (mc.player == null || mc.world == null || target == null) return;
+
+        // Lifecycle: clean state reset when switching rotation modes mid-fight
+        String currentMode = rotationType.getCurrent();
+        if (!currentMode.equals(lastActiveRotationType)) {
+            funTimeRotation.reset();
+            holyWorldRotation.reset();
+            reallyWorldRotation.reset();
+            spookyTimeRotation.reset();
+            superLegitRotation.reset();
+            hvhRotation.reset();
+            RotationStorage.resetQuantizer();
+            lastActiveRotationType = currentMode;
+        }
         if (isNeuroRotation() && target != lastDataTarget) {
             dataSystem.resetState();
             lastDataTarget = target;

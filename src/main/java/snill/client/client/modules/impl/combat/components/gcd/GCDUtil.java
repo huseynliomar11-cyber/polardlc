@@ -15,7 +15,7 @@ public class GCDUtil implements QClient {
     }
 
     public static float getGCD() {
-        double sens = (mc.options != null && mc.options.getMouseSensitivity() != null)
+        double sens = (mc != null && mc.options != null && mc.options.getMouseSensitivity() != null)
                 ? mc.options.getMouseSensitivity().getValue()
                 : 0.5D;
         double f = sens * 0.6000000238418579D + 0.20000000298023224D;

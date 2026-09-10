@@ -133,6 +133,9 @@ public class SuperLegitRotation extends RotationsSystem implements QClient {
         Rotation rot = new Rotation(newYaw, newPitch);
         RotationStorage.update(rot, 360.0F, 360.0F, 40.0F, 30.0F, 0, 1, Aura.clientLook.isState());
 
+        // Reconcile physical velocity with actual quantized applied displacement
+        controller.reconcileAppliedDelta(RotationStorage.lastAppliedYawDelta, RotationStorage.lastAppliedPitchDelta, 0.05f);
+
         // Sync with actual applied player state to eliminate drift
         lastYaw = mc.player.getYaw();
         lastPitch = mc.player.getPitch();

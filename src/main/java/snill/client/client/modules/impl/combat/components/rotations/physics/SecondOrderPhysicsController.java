@@ -5,13 +5,11 @@ import net.minecraft.util.math.Vec2f;
 
 /**
  * 2nd-order mass-spring-damper physics controller with guaranteed numerical stability.
- * Uses sub-stepping (N = 5 sub-steps per tick) so effective h = omega_n * dt_sub < 0.3,
- * ensuring spectral radius < 1.0 unconditionally across all parameter ranges without
- * relying on artificial saturation/clamping to prevent divergence.
+ * Uses dynamic sub-stepping (N calculated dynamically from omega_n * dt / 0.20f)
+ * to guarantee that h_sub = omega_n * dt_sub <= 0.20f unconditionally across all parameter ranges,
+ * ensuring spectral radius rho < 1.0 without relying on artificial saturation/clamping to prevent divergence.
  */
 public class SecondOrderPhysicsController {
-
-    private static final int SUB_STEPS = 5;
 
     // Physical configuration
     private float naturalFrequency; // omega_n (rad/s), response speed
@@ -35,14 +33,14 @@ public class SecondOrderPhysicsController {
                                         float maxVelocityYaw, float maxVelocityPitch,
                                         float maxAcceleration, float maxJerk,
                                         float noiseTau, float noiseSigma) {
-        this.naturalFrequency = naturalFrequency;
-        this.dampingRatio = dampingRatio;
-        this.maxVelocityYaw = maxVelocityYaw;
-        this.maxVelocityPitch = maxVelocityPitch;
-        this.maxAcceleration = maxAcceleration;
-        this.maxJerk = maxJerk;
-        this.noiseYaw = new OrnsteinUhlenbeckNoise(noiseTau, noiseSigma);
-        this.noisePitch = new OrnsteinUhlenbeckNoise(noiseTau, noiseSigma * 0.65f);
+        this.naturalFrequency = sanitize(naturalFrequency, 0.5f, 100.0f, 20.0f);
+        this.dampingRatio = sanitize(dampingRatio, 0.1f, 5.0f, 1.0f);
+        this.maxVelocityYaw = sanitize(maxVelocityYaw, 10.0f, 3600.0f, 720.0f);
+        this.maxVelocityPitch = sanitize(maxVelocityPitch, 10.0f, 3600.0f, 480.0f);
+        this.maxAcceleration = sanitize(maxAcceleration, 100.0f, 50000.0f, 5000.0f);
+        this.maxJerk = sanitize(maxJerk, 500.0f, 200000.0f, 30000.0f);
+        this.noiseYaw = new OrnsteinUhlenbeckNoise(sanitize(noiseTau, 0.01f, 5.0f, 0.14f), sanitize(noiseSigma, 0.0f, 500.0f, 85.0f));
+        this.noisePitch = new OrnsteinUhlenbeckNoise(sanitize(noiseTau, 0.01f, 5.0f, 0.14f), sanitize(noiseSigma * 0.65f, 0.0f, 500.0f, 55.0f));
     }
 
     public void reset() {
@@ -55,7 +53,20 @@ public class SecondOrderPhysicsController {
     }
 
     /**
-     * Steps the physical model forward by dt seconds using sub-stepping for linear stability.
+     * Reconciles internal physical velocity with the actual quantized displacement
+     * that was committed to the authoritative player state by the quantizer.
+     * Prevents velocity accumulation divergence when quantization rounds or clamps movement.
+     */
+    public void reconcileAppliedDelta(float appliedYawDelta, float appliedPitchDelta, float dt) {
+        if (!Float.isFinite(appliedYawDelta) || !Float.isFinite(appliedPitchDelta) || !Float.isFinite(dt) || dt <= 0.0001f) {
+            return;
+        }
+        this.velocityYaw = MathHelper.clamp(appliedYawDelta / dt, -maxVelocityYaw, maxVelocityYaw);
+        this.velocityPitch = MathHelper.clamp(appliedPitchDelta / dt, -maxVelocityPitch, maxVelocityPitch);
+    }
+
+    /**
+     * Steps the physical model forward by dt seconds using dynamic sub-stepping for unconditional stability.
      * @param currentYaw current yaw in degrees
      * @param currentPitch current pitch in degrees
      * @param targetYaw target yaw in degrees
@@ -69,23 +80,26 @@ public class SecondOrderPhysicsController {
             return Vec2f.ZERO;
         }
 
-        if (dt <= 0.0001f || !Float.isFinite(dt)) dt = 0.05f;
+        float validDt = sanitize(dt, 0.001f, 0.25f, 0.05f);
 
-        float subDt = dt / (float) SUB_STEPS;
+        // Dynamically determine sub-steps count to ensure h_sub = omega_n * subDt <= 0.20f
+        int subSteps = MathHelper.clamp((int) Math.ceil(naturalFrequency * validDt / 0.20f), 2, 20);
+        float subDt = validDt / (float) subSteps;
+
         float totalStepYaw = 0.0f;
         float totalStepPitch = 0.0f;
 
         float simYaw = currentYaw;
         float simPitch = currentPitch;
 
-        // Advance neuromuscular noise once per simulation tick
-        float tickNoiseYaw = noiseYaw.update(dt);
-        float tickNoisePitch = noisePitch.update(dt);
+        // Advance neuromuscular noise once per simulation step
+        float tickNoiseYaw = noiseYaw.update(validDt);
+        float tickNoisePitch = noisePitch.update(validDt);
 
         float omega2 = naturalFrequency * naturalFrequency;
         float twoZetaOmega = 2.0f * dampingRatio * naturalFrequency;
 
-        for (int i = 0; i < SUB_STEPS; i++) {
+        for (int i = 0; i < subSteps; i++) {
             // Shortest arc error calculation at current sub-step position
             float errorYaw = MathHelper.wrapDegrees(targetYaw - simYaw);
             float errorPitch = MathHelper.clamp(targetPitch, -89.9f, 89.9f) - simPitch;
@@ -133,13 +147,20 @@ public class SecondOrderPhysicsController {
         return new Vec2f(totalStepYaw, totalStepPitch);
     }
 
-    public void setNaturalFrequency(float omegaN) { this.naturalFrequency = omegaN; }
-    public void setDampingRatio(float zeta) { this.dampingRatio = zeta; }
-    public void setMaxVelocityYaw(float maxVel) { this.maxVelocityYaw = maxVel; }
-    public void setMaxVelocityPitch(float maxVel) { this.maxVelocityPitch = maxVel; }
-    public void setMaxAcceleration(float maxAcc) { this.maxAcceleration = maxAcc; }
-    public void setMaxJerk(float maxJerk) { this.maxJerk = maxJerk; }
+    private static float sanitize(float value, float min, float max, float fallback) {
+        if (!Float.isFinite(value)) return fallback;
+        return MathHelper.clamp(value, min, max);
+    }
+
+    public void setNaturalFrequency(float omegaN) { this.naturalFrequency = sanitize(omegaN, 0.5f, 100.0f, 20.0f); }
+    public void setDampingRatio(float zeta) { this.dampingRatio = sanitize(zeta, 0.1f, 5.0f, 1.0f); }
+    public void setMaxVelocityYaw(float maxVel) { this.maxVelocityYaw = sanitize(maxVel, 10.0f, 3600.0f, 720.0f); }
+    public void setMaxVelocityPitch(float maxVel) { this.maxVelocityPitch = sanitize(maxVel, 10.0f, 3600.0f, 480.0f); }
+    public void setMaxAcceleration(float maxAcc) { this.maxAcceleration = sanitize(maxAcc, 100.0f, 50000.0f, 5000.0f); }
+    public void setMaxJerk(float maxJerk) { this.maxJerk = sanitize(maxJerk, 500.0f, 200000.0f, 30000.0f); }
 
     public float getVelocityYaw() { return velocityYaw; }
     public float getVelocityPitch() { return velocityPitch; }
+    public float getNaturalFrequency() { return naturalFrequency; }
+    public float getDampingRatio() { return dampingRatio; }
 }

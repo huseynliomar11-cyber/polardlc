@@ -138,6 +138,9 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
         Rotation finalRot = new Rotation(newYaw, newPitch);
         RotationStorage.update(finalRot, 360.0F, 360.0F, 46.0F, 46.0F, 0, 1, Aura.clientLook.isState());
 
+        // Reconcile physical velocity with actual quantized applied displacement
+        controller.reconcileAppliedDelta(RotationStorage.lastAppliedYawDelta, RotationStorage.lastAppliedPitchDelta, 0.05f);
+
         // Sync lastYaw and lastPitch with the ACTUAL committed player state to prevent drift
         lastYaw = mc.player.getYaw();
         lastPitch = mc.player.getPitch();
