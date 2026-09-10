@@ -4,7 +4,8 @@ import com.mojang.blaze3d.systems.ProjectionType;
 import com.mojang.blaze3d.systems.RenderSystem;
 import lombok.Getter;
 import net.minecraft.client.gl.Framebuffer;
-import net.minecraft.client.gl.ShaderProgramKeys;
+import net.minecraft.client.gl.GlUniform;
+import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.gl.SimpleFramebuffer;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
@@ -14,8 +15,10 @@ import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.util.math.MathHelper;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fStack;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
+import snill.client.api.utils.render.ShaderUtils;
 import snill.client.client.modules.Module;
 import snill.client.client.modules.settings.implement.BooleanSetting;
 import snill.client.client.modules.settings.implement.FloatSetting;
@@ -28,29 +31,34 @@ public class MotionBlur extends Module {
 
     private final ModeSetting mode = new ModeSetting(
             "Режим",
-            "TikTok Эдит",
-            "TikTok Эдит",
-            "Динамический PvP",
-            "Lunar"
+            "TikTok RSMB",
+            "TikTok RSMB",
+            "Cinematic",
+            "PvP Clean"
     );
 
-    private final FloatSetting intensity = new FloatSetting("Интенсивность", 7.5f, 1.0f, 10.0f, 0.5f);
+    private final FloatSetting intensity = new FloatSetting("Интенсивность", 6.0f, 1.0f, 10.0f, 0.5f);
+
+    private final BooleanSetting chromatic = new BooleanSetting("RGB Сплит (TikTok)", true);
 
     private final BooleanSetting smoothCamera = new BooleanSetting("Плавная камера", true);
 
-    private SimpleFramebuffer historyFbo;
+    private Framebuffer helperFbo;
 
     private float lastYaw;
     private float lastPitch;
     private boolean initializedAngles;
-    private float currentAlpha = 0.0f;
+    private float velX;
+    private float velY;
+    private float mouseVelX;
+    private float mouseVelY;
 
     private double smoothMouseX;
     private double smoothMouseY;
 
     public MotionBlur() {
         super("MotionBlur", "Кинематографичное размытие и плавность камеры", ModuleCategory.RENDER);
-        addSettings(mode, intensity, smoothCamera);
+        addSettings(mode, intensity, chromatic, smoothCamera);
         INSTANCE = this;
     }
 
@@ -58,7 +66,10 @@ public class MotionBlur extends Module {
     public void onEnable() {
         super.onEnable();
         initializedAngles = false;
-        currentAlpha = 0.0f;
+        velX = 0.0f;
+        velY = 0.0f;
+        mouseVelX = 0.0f;
+        mouseVelY = 0.0f;
         smoothMouseX = 0.0;
         smoothMouseY = 0.0;
     }
@@ -66,15 +77,24 @@ public class MotionBlur extends Module {
     @Override
     public void onDisable() {
         super.onDisable();
-        deleteHistoryBuffer();
+        deleteHelperBuffer();
         initializedAngles = false;
-        currentAlpha = 0.0f;
+        velX = 0.0f;
+        velY = 0.0f;
+        mouseVelX = 0.0f;
+        mouseVelY = 0.0f;
         smoothMouseX = 0.0;
         smoothMouseY = 0.0;
     }
 
     public boolean shouldSmoothCamera() {
         return isEnable() && smoothCamera.isState();
+    }
+
+    public void onMouseDelta(double dx, double dy) {
+        float factor = 0.0022f;
+        mouseVelX += (float) -dx * factor;
+        mouseVelY += (float) dy * factor;
     }
 
     public double smoothMouse(double target, boolean isX) {
@@ -109,7 +129,7 @@ public class MotionBlur extends Module {
         }
 
         if (mc.player == null || mc.world == null) {
-            deleteHistoryBuffer();
+            deleteHelperBuffer();
             return;
         }
 
@@ -125,18 +145,7 @@ public class MotionBlur extends Module {
             return;
         }
 
-        // Если открыт интерфейс (инвентарь, чат, меню) — не размываем UI, сохраняем экран чистым
         if (mc.currentScreen != null) {
-            if (historyFbo != null) {
-                copyFramebuffer(mainFbo, historyFbo, width, height);
-            }
-            return;
-        }
-
-        if (historyFbo == null || historyFbo.textureWidth != width || historyFbo.textureHeight != height) {
-            deleteHistoryBuffer();
-            historyFbo = createHistoryBuffer(width, height);
-            copyFramebuffer(mainFbo, historyFbo, width, height);
             return;
         }
 
@@ -147,139 +156,126 @@ public class MotionBlur extends Module {
             lastYaw = yaw;
             lastPitch = pitch;
             initializedAngles = true;
-            copyFramebuffer(mainFbo, historyFbo, width, height);
             return;
         }
 
-        float dy = Math.abs(yaw - lastYaw);
-        float dp = Math.abs(pitch - lastPitch);
-        if (dy > 180.0f) dy = Math.abs(dy - 360.0f);
+        float dy = yaw - lastYaw;
+        float dp = pitch - lastPitch;
+        if (dy > 180.0f) dy -= 360.0f;
+        if (dy < -180.0f) dy += 360.0f;
         lastYaw = yaw;
         lastPitch = pitch;
 
-        boolean isMoving = false;
-        double speedSq = mc.player.getVelocity().horizontalLengthSquared();
-        if (speedSq > 0.0005 || Math.abs(mc.player.getVelocity().y) > 0.005) {
-            isMoving = true;
+        float targetVx = -dy * 0.0042f + mouseVelX;
+        float targetVy = dp * 0.0042f + mouseVelY;
+
+        mouseVelX *= 0.15f;
+        mouseVelY *= 0.15f;
+
+        velX = MathHelper.lerp(0.60f, velX, targetVx);
+        velY = MathHelper.lerp(0.60f, velY, targetVy);
+
+        if (Math.abs(targetVx) < 0.00005f && Math.abs(targetVy) < 0.00005f) {
+            velX *= 0.25f;
+            velY *= 0.25f;
         }
 
-        float motionDelta = dy + dp;
-        float alpha = calculateBlendAlpha(motionDelta, isMoving);
-
-        if (alpha <= 0.01f) {
-            // Камера и игрок неподвижны в динамическом режиме — обновляем буфер на 100% четкий кадр
-            copyFramebuffer(mainFbo, historyFbo, width, height);
+        float speed = (float) Math.hypot(velX, velY);
+        if (speed < 0.00008f) {
             return;
         }
 
-        float scaledW = mc.getWindow().getScaledWidth();
-        float scaledH = mc.getWindow().getScaledHeight();
+        ensureHelperBuffer(width, height);
 
-        RenderSystem.backupProjectionMatrix();
-        try {
-            Matrix4f ortho = new Matrix4f().setOrtho(0.0F, scaledW, scaledH, 0.0F, -1000.0F, 3000.0F);
-            RenderSystem.setProjectionMatrix(ortho, ProjectionType.ORTHOGRAPHIC);
-
-            mainFbo.beginWrite(true);
-
-            RenderSystem.enableBlend();
-            RenderSystem.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
-            RenderSystem.disableDepthTest();
-            RenderSystem.depthMask(false);
-            RenderSystem.disableCull();
-
-            RenderSystem.setShader(ShaderProgramKeys.POSITION_TEX_COLOR);
-            RenderSystem.setShaderTexture(0, historyFbo.getColorAttachment());
-
-            BufferBuilder buffer = Tessellator.getInstance().begin(
-                    VertexFormat.DrawMode.QUADS,
-                    VertexFormats.POSITION_TEXTURE_COLOR
-            );
-            buffer.vertex(0.0f, 0.0f, 0.0f).texture(0.0f, 1.0f).color(1.0f, 1.0f, 1.0f, alpha);
-            buffer.vertex(0.0f, scaledH, 0.0f).texture(0.0f, 0.0f).color(1.0f, 1.0f, 1.0f, alpha);
-            buffer.vertex(scaledW, scaledH, 0.0f).texture(1.0f, 0.0f).color(1.0f, 1.0f, 1.0f, alpha);
-            buffer.vertex(scaledW, 0.0f, 0.0f).texture(1.0f, 1.0f).color(1.0f, 1.0f, 1.0f, alpha);
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-
-            RenderSystem.setShaderTexture(0, 0);
-            RenderSystem.depthMask(true);
-            RenderSystem.enableDepthTest();
-            RenderSystem.enableCull();
-            RenderSystem.defaultBlendFunc();
-            RenderSystem.disableBlend();
-        } finally {
-            RenderSystem.restoreProjectionMatrix();
-        }
-
-        // Сохраняем получившийся скомпонованный кадр в накопитель для следующего шага
-        copyFramebuffer(mainFbo, historyFbo, width, height);
-
-        // Возвращаем запись в основной буфер для последующего рендера HUD
-        mainFbo.beginWrite(true);
-    }
-
-    private float calculateBlendAlpha(float motionDelta, boolean isMoving) {
-        String currentMode = mode.getCurrent();
-        float level = intensity.get();
-
-        switch (currentMode) {
-            case "TikTok Эдит" -> {
-                // Плотный кинематографичный шлейф (0.50 -> 0.88)
-                float baseAlpha = 0.45f + ((level - 1.0f) / 9.0f) * 0.43f;
-                if (motionDelta > 0.05f || isMoving) {
-                    currentAlpha = MathHelper.lerp(0.40f, currentAlpha, baseAlpha);
-                } else {
-                    // При остановке мягко снижаем до 55% от базового, чтобы не было застоя
-                    currentAlpha = MathHelper.lerp(0.35f, currentAlpha, baseAlpha * 0.55f);
-                }
-                return currentAlpha;
-            }
-            case "Динамический PvP" -> {
-                // В движении сочно и плавно, при остановке мыши моментально четкий прицел
-                float baseAlpha = 0.35f + ((level - 1.0f) / 9.0f) * 0.45f;
-                if (motionDelta > 0.06f || isMoving) {
-                    currentAlpha = MathHelper.lerp(0.50f, currentAlpha, baseAlpha);
-                } else {
-                    // Быстрое затухание при остановке камеры
-                    currentAlpha *= 0.30f;
-                    if (currentAlpha < 0.04f) {
-                        currentAlpha = 0.0f;
-                    }
-                }
-                return currentAlpha;
-            }
-            case "Lunar" -> {
-                // Классический Phosphor MotionBlur
-                return 0.25f + ((level - 1.0f) / 9.0f) * 0.60f;
-            }
-            default -> {
-                return 0.50f;
-            }
-        }
-    }
-
-    private SimpleFramebuffer createHistoryBuffer(int w, int h) {
-        SimpleFramebuffer fb = new SimpleFramebuffer(w, h, false);
-        fb.setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        fb.clear();
-        RenderSystem.bindTexture(fb.getColorAttachment());
-        GL30.glTexParameteri(GL30.GL_TEXTURE_2D, GL30.GL_TEXTURE_MIN_FILTER, GL30.GL_LINEAR);
-        GL30.glTexParameteri(GL30.GL_TEXTURE_2D, GL30.GL_TEXTURE_MAG_FILTER, GL30.GL_LINEAR);
-        RenderSystem.bindTexture(0);
-        return fb;
-    }
-
-    private void copyFramebuffer(Framebuffer src, Framebuffer dst, int width, int height) {
-        GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, src.fbo);
-        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, dst.fbo);
+        // 1. Копируем текущий 3D-кадр в helperFbo
+        GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, mainFbo.fbo);
+        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, helperFbo.fbo);
         GL30.glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL11.GL_COLOR_BUFFER_BIT, GL11.GL_NEAREST);
         GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
+
+        // 2. Рисуем направленный шейдер MotionBlur обратно в mainFbo
+        mainFbo.beginWrite(true);
+        beginFullscreenState();
+        try {
+            ShaderProgram shader = mc.getShaderLoader().getOrCreateProgram(ShaderUtils.motionBlur);
+            if (shader == null) return;
+
+            GlUniform uVel = shader.getUniform("u_Velocity");
+            GlUniform uInt = shader.getUniform("u_Intensity");
+            GlUniform uChr = shader.getUniform("u_Chromatic");
+
+            if (uVel != null) uVel.set(velX, velY);
+            if (uInt != null) uInt.set(intensity.get());
+            if (uChr != null) {
+                boolean useChrom = chromatic.isState() && !mode.is("PvP Clean");
+                uChr.set(useChrom ? 1.0f : 0.0f);
+            }
+
+            RenderSystem.setShader(ShaderUtils.motionBlur);
+            RenderSystem.setShaderTexture(0, helperFbo.getColorAttachment());
+            drawFullscreenQuad(1.0f);
+        } finally {
+            endFullscreenState();
+            mainFbo.beginWrite(true);
+        }
     }
 
-    private void deleteHistoryBuffer() {
-        if (historyFbo != null) {
-            historyFbo.delete();
-            historyFbo = null;
+    private void beginFullscreenState() {
+        RenderSystem.backupProjectionMatrix();
+        float scaledWidth = Math.max(1, mc.getWindow().getScaledWidth());
+        float scaledHeight = Math.max(1, mc.getWindow().getScaledHeight());
+        Matrix4f ortho = new Matrix4f().setOrtho(0f, scaledWidth, scaledHeight, 0f, -1000f, 1000f);
+        RenderSystem.setProjectionMatrix(ortho, ProjectionType.ORTHOGRAPHIC);
+        Matrix4fStack modelView = RenderSystem.getModelViewStack();
+        modelView.pushMatrix();
+        modelView.identity();
+        RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
+        RenderSystem.disableCull();
+    }
+
+    private void endFullscreenState() {
+        RenderSystem.getModelViewStack().popMatrix();
+        RenderSystem.restoreProjectionMatrix();
+        RenderSystem.colorMask(true, true, true, true);
+        RenderSystem.depthMask(true);
+        RenderSystem.enableDepthTest();
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        RenderSystem.setShaderTexture(0, 0);
+    }
+
+    private void drawFullscreenQuad(float alpha) {
+        float scaledWidth = Math.max(1, mc.getWindow().getScaledWidth());
+        float scaledHeight = Math.max(1, mc.getWindow().getScaledHeight());
+        BufferBuilder buffer = Tessellator.getInstance().begin(
+                VertexFormat.DrawMode.QUADS, VertexFormats.POSITION_TEXTURE_COLOR);
+        buffer.vertex(0, 0, 0).texture(0, 1).color(1f, 1f, 1f, alpha);
+        buffer.vertex(0, scaledHeight, 0).texture(0, 0).color(1f, 1f, 1f, alpha);
+        buffer.vertex(scaledWidth, scaledHeight, 0).texture(1, 0).color(1f, 1f, 1f, alpha);
+        buffer.vertex(scaledWidth, 0, 0).texture(1, 1).color(1f, 1f, 1f, alpha);
+        BufferRenderer.drawWithGlobalProgram(buffer.end());
+    }
+
+    private void ensureHelperBuffer(int width, int height) {
+        if (helperFbo == null || helperFbo.textureWidth != width || helperFbo.textureHeight != height) {
+            deleteHelperBuffer();
+            helperFbo = new SimpleFramebuffer(width, height, false);
+            helperFbo.setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            helperFbo.clear();
+            RenderSystem.bindTexture(helperFbo.getColorAttachment());
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            RenderSystem.bindTexture(0);
+        }
+    }
+
+    private void deleteHelperBuffer() {
+        if (helperFbo != null) {
+            helperFbo.delete();
+            helperFbo = null;
         }
     }
 }

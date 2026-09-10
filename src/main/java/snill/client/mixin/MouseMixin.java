@@ -83,9 +83,12 @@ public abstract class MouseMixin {
             j = this.cursorDeltaY * scaled;
 
             MotionBlur motionBlur = MotionBlur.INSTANCE;
-            if (motionBlur != null && motionBlur.isEnable() && motionBlur.shouldSmoothCamera()) {
-               i = motionBlur.smoothMouse(i, true);
-               j = motionBlur.smoothMouse(j, false);
+            if (motionBlur != null && motionBlur.isEnable()) {
+               motionBlur.onMouseDelta(i, j);
+               if (motionBlur.shouldSmoothCamera()) {
+                  i = motionBlur.smoothMouse(i, true);
+                  j = motionBlur.smoothMouse(j, false);
+               }
             }
          }
 

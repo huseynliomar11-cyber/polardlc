@@ -111,8 +111,10 @@ public class LocalizationStorage {
         add("Интенсивность", "Intensity", "Інтенсивність");
         add("Режим", "Mode", "Режим");
         add("Плавная камера", "Smooth Camera", "Плавна камера");
-        add("TikTok Эдит", "TikTok Edit", "TikTok Едіт");
-        add("Динамический PvP", "Dynamic PvP", "Динамічний PvP");
+        add("TikTok RSMB", "TikTok RSMB", "TikTok RSMB");
+        add("Cinematic", "Cinematic", "Кінематографічний");
+        add("PvP Clean", "PvP Clean", "PvP Чистий");
+        add("RGB Сплит (TikTok)", "RGB Split (TikTok)", "RGB Спліт (TikTok)");
     }
 
     private void add(String key, String english, String ukrainian) {
