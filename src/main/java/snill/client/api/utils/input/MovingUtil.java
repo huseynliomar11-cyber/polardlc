@@ -93,7 +93,7 @@ public final class MovingUtil implements QClient {
          for(float testForward = -1.0F; testForward <= 1.0F; ++testForward) {
             for(float testStrafe = -1.0F; testStrafe <= 1.0F; ++testStrafe) {
                if (testForward != 0.0F || testStrafe != 0.0F) {
-                  double testAngle = MathHelper.wrapDegrees(Math.toDegrees(direction(yaw, testForward, testStrafe)));
+                  double testAngle = MathHelper.wrapDegrees(Math.toDegrees(direction(mc.player.getYaw(), testForward, testStrafe)));
                   float difference = Math.abs(MathHelper.wrapDegrees((float)(targetAngle - testAngle)));
                   if (difference < smallestDifference) {
                      smallestDifference = difference;
@@ -112,29 +112,31 @@ public final class MovingUtil implements QClient {
    public static void fixMovementFree(EventMoveInput event) {
       float forward = event.getForward();
       float strafe = event.getStrafe();
-      double angle = MathHelper.wrapDegrees(Math.toDegrees(direction(mc.player.isGliding() ? mc.player.getYaw() : FreeLookStorage.getFreeYaw(), forward, strafe)));
-      if (forward != 0.0F || strafe != 0.0F) {
-         float closestForward = 0.0F;
-         float closestStrafe = 0.0F;
-         float closestDifference = Float.MAX_VALUE;
+      if (forward == 0.0F && strafe == 0.0F) return;
 
-         for(float predictedForward = -1.0F; predictedForward <= 1.0F; ++predictedForward) {
-            for(float predictedStrafe = -1.0F; predictedStrafe <= 1.0F; ++predictedStrafe) {
-               if (predictedStrafe != 0.0F || predictedForward != 0.0F) {
-                  double predictedAngle = MathHelper.wrapDegrees(Math.toDegrees(direction(mc.player.getYaw(), predictedForward, predictedStrafe)));
-                  double difference = Math.abs(angle - predictedAngle);
-                  if (difference < (double)closestDifference) {
-                     closestDifference = (float)difference;
-                     closestForward = predictedForward;
-                     closestStrafe = predictedStrafe;
-                  }
+      float baseYaw = mc.player.isGliding() ? mc.player.getYaw() : (FreeLookStorage.isActive() ? FreeLookStorage.getFreeYaw() : mc.player.getYaw());
+      double angle = MathHelper.wrapDegrees(Math.toDegrees(direction(baseYaw, forward, strafe)));
+      
+      float closestForward = 0.0F;
+      float closestStrafe = 0.0F;
+      float closestDifference = Float.MAX_VALUE;
+
+      for(float predictedForward = -1.0F; predictedForward <= 1.0F; ++predictedForward) {
+         for(float predictedStrafe = -1.0F; predictedStrafe <= 1.0F; ++predictedStrafe) {
+            if (predictedStrafe != 0.0F || predictedForward != 0.0F) {
+               double predictedAngle = MathHelper.wrapDegrees(Math.toDegrees(direction(mc.player.getYaw(), predictedForward, predictedStrafe)));
+               float difference = Math.abs(MathHelper.wrapDegrees((float)(angle - predictedAngle)));
+               if (difference < closestDifference) {
+                  closestDifference = difference;
+                  closestForward = predictedForward;
+                  closestStrafe = predictedStrafe;
                }
             }
          }
-
-         event.setForward(closestForward);
-         event.setStrafe(closestStrafe);
       }
+
+      event.setForward(closestForward);
+      event.setStrafe(closestStrafe);
    }
 
    public static double direction(float rotationYaw, float moveForward, float moveStrafing) {

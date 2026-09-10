@@ -9,9 +9,11 @@ import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.HostileEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ProjectileUtil;
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.item.AxeItem;
 import net.minecraft.item.HoeItem;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.item.MaceItem;
 import net.minecraft.item.PickaxeItem;
@@ -173,7 +175,8 @@ public class Aura extends Module {
             if (correctionType.is("Свободная")) {
                 MovingUtil.fixMovementFree(event);
             } else if (correctionType.is("Сфокусированная")) {
-                MovingUtil.fixMovementFocus(event, mc.player.getYaw());
+                float viewYaw = FreeLookStorage.isActive() ? FreeLookStorage.getFreeYaw() : mc.player.getYaw();
+                MovingUtil.fixMovementFocus(event, viewYaw);
             } else if (correctionType.is("Фулл Таргет")) {
                 moveToTarget(event, target);
             }
@@ -265,10 +268,19 @@ public class Aura extends Module {
     private String lastActiveRotationType = "";
     private LivingEntity lastTargetEntity = null;
 
+    private boolean isPlayerEatingOrDrinking() {
+        if (mc.player == null || !mc.player.isUsingItem()) return false;
+        ItemStack active = mc.player.getActiveItem();
+        if (active.isEmpty()) return false;
+        return active.contains(DataComponentTypes.FOOD)
+                || active.getItem() instanceof net.minecraft.item.PotionItem
+                || active.isOf(Items.MILK_BUCKET);
+    }
+
     private boolean tryAttack(LivingEntity entity, String reason) {
         if (mc.player == null || mc.world == null || entity == null || !isValidTarget(entity)) return false;
         if (cps > System.currentTimeMillis()) return false;
-        if (attackOnEating.isState() && mc.player.isUsingItem()) return false;
+        if (attackOnEating.isState() && isPlayerEatingOrDrinking()) return false;
         if (sprintReset.isState() && mc.player.isSprinting() && !sprintResetDone) {
             needSprintReset = true;
             return false;
@@ -517,7 +529,11 @@ public class Aura extends Module {
         return readyByCooldown || fallingForCrit;
     }
     private void attack() {
-        if (unpressShield.isState() && mc.player.isBlocking()) mc.interactionManager.stopUsingItem(mc.player);
+        boolean wasBlocking = mc.player != null && mc.player.isBlocking();
+        Hand activeHand = mc.player != null ? mc.player.getActiveHand() : Hand.OFF_HAND;
+        if (unpressShield.isState() && wasBlocking) {
+            mc.interactionManager.stopUsingItem(mc.player);
+        }
         tryBreakRwWallBlockPacket();
         boolean attacked = false;
         if (target instanceof PlayerEntity player && player.isBlocking() && breakShield.isState()) attacked = shieldBreak(player);
@@ -525,14 +541,18 @@ public class Aura extends Module {
             mc.interactionManager.attackEntity(mc.player, target);
             mc.player.swingHand(Hand.MAIN_HAND);
         }
+        if (unpressShield.isState() && wasBlocking && mc.options != null && mc.options.useKey.isPressed()) {
+            mc.interactionManager.interactItem(mc.player, activeHand != null ? activeHand : Hand.OFF_HAND);
+        }
         if (rotationType.is("FunTime")) funTimeRotation.onAttack();
         if (rotationType.is("HolyWorld")) holyWorldRotation.onAttack();
         if (rotationType.is("ReallyWorld")) reallyWorldRotation.onAttack();
         if (rotationType.is("SpookyTime")) spookyTimeRotation.onAttack();
         if (rotationType.is("SuperLegit")) superLegitRotation.onAttack();
         if (rotationType.is("HvH")) hvhRotation.onAttack();
-        long cooldown = 467L;
-        if (syncTps.isState()) cooldown = (long) (getTpsAdjustedCooldown(cooldown) * 1.1f);
+        double attackSpeed = mc.player != null ? mc.player.getAttributeValue(EntityAttributes.ATTACK_SPEED) : 1.6;
+        long baseCooldown = (long) (1000.0 / Math.max(0.1, attackSpeed) * IdealHitUtils.getAICooldown());
+        long cooldown = syncTps.isState() ? getTpsAdjustedCooldown(baseCooldown) : baseCooldown;
         cps = System.currentTimeMillis() + cooldown;
         ticksToAttack = 10;
         attackTimer.reset();

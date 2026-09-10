@@ -65,7 +65,8 @@ public class RotationStorage implements QClient {
             for (float testStrafe = -1F; testStrafe <= 1F; testStrafe++) {
                 if (testForward == 0 && testStrafe == 0) continue;
 
-                final double testAngle = MathHelper.wrapDegrees(Math.toDegrees(direction(yaw, testForward, testStrafe)));
+                float playerYaw = mc.player != null ? mc.player.getYaw() : yaw;
+                final double testAngle = MathHelper.wrapDegrees(Math.toDegrees(direction(playerYaw, testForward, testStrafe)));
                 final float difference = Math.abs(MathHelper.wrapDegrees((float)(targetAngle - testAngle)));
 
                 if (difference < smallestDifference) {
