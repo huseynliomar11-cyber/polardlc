@@ -23,6 +23,8 @@ import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.world.RaycastContext;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -279,6 +281,9 @@ public class Aura extends Module {
         resetBypassAttack();
         sprintResetDone = false;
         sprintResetTicks = 0;
+        if (sprintReset.isState() && mc.player != null && mc.player.input != null && mc.player.input.movementForward > 0.0F) {
+            mc.player.setSprinting(true);
+        }
         return true;
     }
 
@@ -436,14 +441,22 @@ public class Aura extends Module {
         return yawDiff <= 3.0f && pitchDiff <= 2.5f && onTarget;
     }
 
-    private boolean isUsingRwWallBypass() { return rwWallBypass.isState() && target != null && isTargetBehindWall(target); }
+    private boolean isUsingRwWallBypass() { return rwWallBypass.isState() && rotationType.is("ReallyWorld") && target != null && isTargetBehindWall(target); }
 
     private EntityHitResult getAttackRaycastResult() {
         Vec3d eyePos = mc.player.getCameraPosVec(1.0F);
         Vec3d lookVec = mc.player.getRotationVec(1.0F);
         float reach = getEffectiveRange() * 2.0f;
         Vec3d reachVec = eyePos.add(lookVec.multiply(reach));
-        return ProjectileUtil.raycast(mc.player, eyePos, reachVec, mc.player.getBoundingBox().expand(reach), ex -> ex != mc.player && ex.isAlive(), reach * reach);
+        EntityHitResult entityHit = ProjectileUtil.raycast(mc.player, eyePos, reachVec, mc.player.getBoundingBox().expand(reach), ex -> ex != mc.player && ex.isAlive(), reach * reach);
+        if (entityHit == null) return null;
+        if (!throughWalls.isState() && !isUsingRwWallBypass() && mc.world != null) {
+            HitResult blockHit = mc.world.raycast(new RaycastContext(eyePos, entityHit.getPos(), RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, mc.player));
+            if (blockHit != null && blockHit.getType() != HitResult.Type.MISS) {
+                return null;
+            }
+        }
+        return entityHit;
     }
 
     private boolean isTargetBehindWall(LivingEntity entity) {
@@ -508,14 +521,16 @@ public class Aura extends Module {
         tryBreakRwWallBlockPacket();
         boolean attacked = false;
         if (target instanceof PlayerEntity player && player.isBlocking() && breakShield.isState()) attacked = shieldBreak(player);
-        if (!attacked) mc.interactionManager.attackEntity(mc.player, target);
+        if (!attacked) {
+            mc.interactionManager.attackEntity(mc.player, target);
+            mc.player.swingHand(Hand.MAIN_HAND);
+        }
         if (rotationType.is("FunTime")) funTimeRotation.onAttack();
         if (rotationType.is("HolyWorld")) holyWorldRotation.onAttack();
         if (rotationType.is("ReallyWorld")) reallyWorldRotation.onAttack();
         if (rotationType.is("SpookyTime")) spookyTimeRotation.onAttack();
         if (rotationType.is("SuperLegit")) superLegitRotation.onAttack();
         if (rotationType.is("HvH")) hvhRotation.onAttack();
-        mc.player.swingHand(Hand.MAIN_HAND);
         long cooldown = 467L;
         if (syncTps.isState()) cooldown = (long) (getTpsAdjustedCooldown(cooldown) * 1.1f);
         cps = System.currentTimeMillis() + cooldown;
@@ -560,7 +575,12 @@ public class Aura extends Module {
     private boolean shieldBreak(PlayerEntity entity) {
         if (mc.player == null || mc.interactionManager == null || entity == null) return false;
         int axeHotbarSlot = findAxeHotbarSlot();
-        if (axeHotbarSlot != -1) { attackWithHotbarSlot(entity, axeHotbarSlot); return true; }
+        if (axeHotbarSlot != -1) { 
+            attackWithHotbarSlot(entity, axeHotbarSlot); 
+            return true; 
+        }
+        // Avoid risky window click inventory swaps while moving to prevent Grim BadPackets
+        if (MovingUtil.hasPlayerMovement() || mc.player.isSprinting()) return false;
         int axeInventorySlot = findAxeInventorySlot();
         if (axeInventorySlot == -1) return false;
         int selectedSlot = mc.player.getInventory().selectedSlot;
@@ -570,6 +590,7 @@ public class Aura extends Module {
         try {
             mc.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(selectedSlot));
             mc.interactionManager.attackEntity(mc.player, entity);
+            mc.player.swingHand(Hand.MAIN_HAND);
             return true;
         } finally {
             mc.interactionManager.clickSlot(0, containerSlot, selectedSlot, SlotActionType.SWAP, mc.player);
@@ -580,11 +601,21 @@ public class Aura extends Module {
 
     private void attackWithHotbarSlot(PlayerEntity entity, int slot) {
         int previousSlot = mc.player.getInventory().selectedSlot;
-        if (slot != previousSlot) { mc.player.getInventory().selectedSlot = slot; mc.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot)); }
-        try { mc.interactionManager.attackEntity(mc.player, entity); } finally {
-            if (slot != previousSlot) { mc.player.getInventory().selectedSlot = previousSlot; mc.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(previousSlot)); }
+        if (slot != previousSlot) { 
+            mc.player.getInventory().selectedSlot = slot; 
+            mc.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot)); 
+        }
+        try { 
+            mc.interactionManager.attackEntity(mc.player, entity); 
+            mc.player.swingHand(Hand.MAIN_HAND);
+        } finally {
+            if (slot != previousSlot) { 
+                mc.player.getInventory().selectedSlot = previousSlot; 
+                mc.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(previousSlot)); 
+            }
         }
     }
+
 
     private int findAxeHotbarSlot() {
         for (int i = 0; i < 9; i++) if (mc.player.getInventory().getStack(i).getItem() instanceof AxeItem) return i;
