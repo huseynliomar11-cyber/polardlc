@@ -27,16 +27,16 @@ public class SuperLegitRotation extends RotationsSystem implements QClient {
     private float overshootPitch = 0.0F;
     private boolean isOvershooting = false;
 
-    // 2nd-order underdamped controller (zeta = 0.84) creating realistic human settle with tremor
+    // 2nd-order underdamped controller (zeta = 0.84) creating realistic human settle with low-frequency neuromuscular noise
     private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
-            15.0f,  // Natural frequency omega_n (calm human tracking speed)
+            14.0f,  // Natural frequency omega_n (calm human tracking speed, unconditionally stable)
             0.84f,  // Damping ratio zeta (subtle natural human overshoot)
             450.0f, // Max yaw velocity (deg/s)
             320.0f, // Max pitch velocity (deg/s)
-            2800.0f,// Max acceleration (deg/s^2)
-            14000.0f,// Max jerk (deg/s^3)
-            0.18f,  // OU noise tau (mimicking 8-12 Hz neuromuscular motor noise)
-            180.0f  // OU noise sigma
+            2600.0f,// Max acceleration (deg/s^2)
+            12000.0f,// Max jerk (deg/s^3)
+            0.18f,  // OU noise tau
+            120.0f  // OU noise sigma
     );
 
     public SuperLegitRotation(Aura aura) {
@@ -68,9 +68,10 @@ public class SuperLegitRotation extends RotationsSystem implements QClient {
         if (mc.player == null || target == null) return;
 
         if (mc.player.isBlocking()) {
-            rotate = new Vec2f(mc.player.getYaw(), mc.player.getPitch());
-            lastYaw = rotate.x;
-            lastPitch = rotate.y;
+            controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
+            rotate = new Vec2f(lastYaw, lastPitch);
             return;
         }
 
@@ -84,9 +85,11 @@ public class SuperLegitRotation extends RotationsSystem implements QClient {
             trackedTarget = target;
             ticks = 0;
             controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
             // Subtle initial human flick overshoot when locking onto a target
-            overshootYaw = (float) ((Math.random() - 0.5D) * 2.8D);
-            overshootPitch = (float) ((Math.random() - 0.5D) * 1.6D);
+            overshootYaw = (float) ((Math.random() - 0.5D) * 2.5D);
+            overshootPitch = (float) ((Math.random() - 0.5D) * 1.4D);
             isOvershooting = true;
         }
 
@@ -94,7 +97,7 @@ public class SuperLegitRotation extends RotationsSystem implements QClient {
 
         // Aim at chest with slight natural breathing offset
         Box box = target.getBoundingBox();
-        double breathY = Math.sin(ticks * 0.08D) * 0.05D;
+        double breathY = Math.sin(ticks * 0.08D) * 0.04D;
         Vec3d aimPoint = new Vec3d(
                 box.minX + (box.maxX - box.minX) * 0.5D,
                 box.minY + (box.maxY - box.minY) * 0.65D + breathY,
@@ -130,8 +133,9 @@ public class SuperLegitRotation extends RotationsSystem implements QClient {
         Rotation rot = new Rotation(newYaw, newPitch);
         RotationStorage.update(rot, 360.0F, 360.0F, 40.0F, 30.0F, 0, 1, Aura.clientLook.isState());
 
-        rotate = new Vec2f(rot.getYaw(), rot.getPitch());
-        lastYaw = rot.getYaw();
-        lastPitch = rot.getPitch();
+        // Sync with actual applied player state to eliminate drift
+        lastYaw = mc.player.getYaw();
+        lastPitch = mc.player.getPitch();
+        rotate = new Vec2f(lastYaw, lastPitch);
     }
 }

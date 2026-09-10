@@ -21,19 +21,19 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
     private float lastPitch;
     private boolean initialized;
 
-    // Pitch damping and drifting for Matrix bypass
+    // Smooth stochastic drift across target bounds to avoid Matrix static angle checks
     private double driftAngle;
 
     // 2nd-order physics controller with overdamped characteristics to bypass Matrix angle-derivative checks
     private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
-            20.0f,  // Natural frequency omega_n
+            18.0f,  // Natural frequency omega_n (stable with sub-stepping)
             1.05f,  // Damping ratio zeta (slightly overdamped for buttery, non-spiking tracking)
-            700.0f, // Max yaw velocity (deg/s)
-            380.0f, // Max pitch velocity (deg/s - Matrix heavily checks pitch acceleration)
-            4000.0f,// Max acceleration (deg/s^2)
-            20000.0f,// Max jerk (deg/s^3)
+            680.0f, // Max yaw velocity (deg/s)
+            360.0f, // Max pitch velocity (deg/s - Matrix heavily checks pitch acceleration)
+            3800.0f,// Max acceleration (deg/s^2)
+            18000.0f,// Max jerk (deg/s^3)
             0.16f,  // OU noise tau
-            60.0f   // OU noise sigma
+            55.0f   // OU noise sigma
     );
 
     public ReallyWorldRotation(Aura aura) {
@@ -62,9 +62,10 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
         if (mc.player == null || target == null) return;
 
         if (mc.player.isBlocking()) {
-            rotate = new Vec2f(mc.player.getYaw(), mc.player.getPitch());
-            lastYaw = rotate.x;
-            lastPitch = rotate.y;
+            controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
+            rotate = new Vec2f(lastYaw, lastPitch);
             return;
         }
 
@@ -78,19 +79,21 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
             trackedTarget = target;
             driftAngle = Math.random() * Math.PI * 2;
             controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
         }
 
-        driftAngle += 0.06D;
+        // Variational non-periodic drift across the body
+        driftAngle += 0.04D + Math.random() * 0.03D;
 
-        // Subtle elliptical drift across the body to avoid Matrix static angle detection
         Box box = target.getBoundingBox();
-        double width = (box.maxX - box.minX) * 0.32D;
-        double height = (box.maxY - box.minY) * 0.18D;
+        double width = (box.maxX - box.minX) * 0.28D;
+        double height = (box.maxY - box.minY) * 0.16D;
 
         Vec3d center = box.getCenter();
         Vec3d aimPoint = new Vec3d(
                 center.x + Math.sin(driftAngle) * width,
-                box.minY + (box.maxY - box.minY) * 0.65D + Math.cos(driftAngle * 0.8D) * height,
+                box.minY + (box.maxY - box.minY) * 0.65D + Math.cos(driftAngle * 0.85D) * height,
                 center.z + Math.cos(driftAngle) * width
         );
 
@@ -102,7 +105,7 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
         float targetYaw = targetRot.x;
         float targetPitch = targetRot.y;
 
-        // Step physics model
+        // Step physics model with sub-stepping stability
         Vec2f angularDelta = controller.step(lastYaw, lastPitch, targetYaw, targetPitch, 0.05f);
 
         float newYaw = lastYaw + angularDelta.x;
@@ -112,8 +115,9 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
         Rotation rot = new Rotation(newYaw, newPitch);
         RotationStorage.update(rot, 360.0F, 360.0F, 45.0F, 35.0F, 0, 1, Aura.clientLook.isState());
 
-        rotate = new Vec2f(rot.getYaw(), rot.getPitch());
-        lastYaw = rot.getYaw();
-        lastPitch = rot.getPitch();
+        // Sync with actual applied player state to eliminate drift
+        lastYaw = mc.player.getYaw();
+        lastPitch = mc.player.getPitch();
+        rotate = new Vec2f(lastYaw, lastPitch);
     }
 }

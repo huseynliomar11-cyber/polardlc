@@ -27,10 +27,7 @@ public class PredictRots extends RotationsSystem implements QClient {
         float yaw = rotation.x + additionYaw;
         float pitch = rotation.y + additionPitch;
 
-        float yawFinal = GCDUtil.getFixedRotation(yaw);
-        float pitchFinal = GCDUtil.getFixedRotation(pitch);
-
-        return new Vec2f(yawFinal, pitchFinal);
+        return new Vec2f(yaw, MathHelper.clamp(pitch, -89.9F, 89.9F));
     }
 
     

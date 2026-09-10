@@ -20,17 +20,18 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
     private float lastYaw;
     private float lastPitch;
     private boolean initialized;
+    private int attackSlowdownTicks = 0;
 
     // 2nd-order physics controller tuned for HolyWorld snappy aim and crit focus
     private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
-            26.0f,  // Natural frequency omega_n (snappy response)
+            22.0f,  // Natural frequency omega_n (sub-stepped, stable)
             0.94f,  // Damping ratio zeta
-            850.0f, // Max yaw velocity (deg/s)
-            520.0f, // Max pitch velocity (deg/s)
-            6000.0f,// Max acceleration (deg/s^2)
-            35000.0f,// Max jerk (deg/s^3)
+            820.0f, // Max yaw velocity (deg/s)
+            500.0f, // Max pitch velocity (deg/s)
+            5500.0f,// Max acceleration (deg/s^2)
+            32000.0f,// Max jerk (deg/s^3)
             0.12f,  // OU noise tau (s)
-            75.0f   // OU noise sigma
+            70.0f   // OU noise sigma
     );
 
     public HolyWorldRotation(Aura aura) {
@@ -39,6 +40,7 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
 
     public void reset() {
         trackedTarget = null;
+        attackSlowdownTicks = 0;
         controller.reset();
         initialized = mc.player != null;
         if (mc.player != null) {
@@ -51,7 +53,7 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
     }
 
     public void onAttack() {
-        controller.setMaxVelocityYaw(600.0f);
+        attackSlowdownTicks = 3;
     }
 
     @Override
@@ -59,9 +61,10 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
         if (mc.player == null || target == null) return;
 
         if (mc.player.isBlocking()) {
-            rotate = new Vec2f(mc.player.getYaw(), mc.player.getPitch());
-            lastYaw = rotate.x;
-            lastPitch = rotate.y;
+            controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
+            rotate = new Vec2f(lastYaw, lastPitch);
             return;
         }
 
@@ -74,6 +77,8 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
         if (trackedTarget != target) {
             trackedTarget = target;
             controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
         }
 
         // Target upper body (chest/head) for max crit chance on HolyWorld
@@ -95,8 +100,13 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
         boolean readyToHit = mc.player.getAttackCooldownProgress(1.0F) > 0.88F;
 
         // Dynamic acceleration boost for HolyWorld hit timings
-        controller.setNaturalFrequency(readyToHit ? 29.0f : 24.0f);
-        controller.setMaxVelocityYaw(readyToHit ? 920.0f : 750.0f);
+        controller.setNaturalFrequency(readyToHit ? 25.0f : 21.0f);
+        controller.setMaxVelocityYaw(readyToHit ? 850.0f : 700.0f);
+
+        if (attackSlowdownTicks > 0) {
+            attackSlowdownTicks--;
+            controller.setMaxVelocityYaw(520.0f);
+        }
 
         // Step physics model (dt = 0.05s)
         Vec2f angularDelta = controller.step(lastYaw, lastPitch, targetYaw, targetPitch, 0.05f);
@@ -108,8 +118,9 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
         Rotation rot = new Rotation(newYaw, newPitch);
         RotationStorage.update(rot, 360.0F, 360.0F, 50.0F, 50.0F, 0, 1, Aura.clientLook.isState());
 
-        rotate = new Vec2f(rot.getYaw(), rot.getPitch());
-        lastYaw = rot.getYaw();
-        lastPitch = rot.getPitch();
+        // Sync with actual applied player state to eliminate drift
+        lastYaw = mc.player.getYaw();
+        lastPitch = mc.player.getPitch();
+        rotate = new Vec2f(lastYaw, lastPitch);
     }
 }

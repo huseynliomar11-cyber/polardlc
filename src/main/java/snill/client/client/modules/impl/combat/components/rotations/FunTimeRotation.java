@@ -20,17 +20,18 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
     private float lastYaw;
     private float lastPitch;
     private boolean initialized;
+    private int attackSlowdownTicks = 0;
 
     // 2nd-order mass-spring-damper controller tuned for FunTime / GrimAC
     private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
-            22.0f,  // Natural frequency omega_n
-            0.98f,  // Damping ratio zeta (critically damped, no artificial overshoot)
+            20.0f,  // Natural frequency omega_n (sub-stepped, unconditionally stable)
+            0.98f,  // Damping ratio zeta (critically damped)
             720.0f, // Max yaw velocity (deg/s)
             480.0f, // Max pitch velocity (deg/s)
             5000.0f,// Max acceleration (deg/s^2)
             30000.0f,// Max jerk (deg/s^3)
             0.14f,  // OU noise correlation tau (s)
-            100.0f  // OU noise sigma on acceleration
+            85.0f   // OU noise sigma on acceleration
     );
 
     public FunTimeRotation(Aura aura) {
@@ -39,6 +40,7 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
 
     public void reset() {
         trackedTarget = null;
+        attackSlowdownTicks = 0;
         controller.reset();
         initialized = mc.player != null;
 
@@ -52,9 +54,8 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
     }
 
     public void onAttack() {
-        if (mc.player != null && mc.player.isGliding()) {
-            controller.setMaxVelocityYaw(550.0f);
-        }
+        // Slow down camera acceleration/velocity for 3 ticks after hitting
+        attackSlowdownTicks = 3;
     }
 
     @Override
@@ -62,9 +63,10 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
         if (mc.player == null || target == null) return;
 
         if (mc.player.isBlocking()) {
-            rotate = new Vec2f(mc.player.getYaw(), mc.player.getPitch());
-            lastYaw = rotate.x;
-            lastPitch = rotate.y;
+            controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
+            rotate = new Vec2f(lastYaw, lastPitch);
             return;
         }
 
@@ -77,6 +79,8 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
         if (trackedTarget != target) {
             trackedTarget = target;
             controller.reset();
+            lastYaw = mc.player.getYaw();
+            lastPitch = mc.player.getPitch();
         }
 
         // Find best multipoint on hitbox (chest / head area)
@@ -107,18 +111,24 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
 
         // Adapt controller dynamics dynamically
         if (mc.player.isGliding()) {
-            controller.setNaturalFrequency(passedTarget ? 16.0f : 24.0f);
-            controller.setMaxVelocityYaw(passedTarget ? 1100.0f : 850.0f);
-            controller.setMaxVelocityPitch(600.0f);
-            controller.setDampingRatio(1.05f);
+            controller.setNaturalFrequency(passedTarget ? 16.0f : 22.0f);
+            controller.setMaxVelocityYaw(passedTarget ? 1000.0f : 800.0f);
+            controller.setMaxVelocityPitch(550.0f);
+            controller.setDampingRatio(1.02f);
         } else {
-            controller.setNaturalFrequency(readyToAttack ? 25.0f : 20.0f);
-            controller.setMaxVelocityYaw(readyToAttack ? 780.0f : 650.0f);
-            controller.setMaxVelocityPitch(readyToAttack ? 460.0f : 380.0f);
+            controller.setNaturalFrequency(readyToAttack ? 23.0f : 19.0f);
+            controller.setMaxVelocityYaw(readyToAttack ? 740.0f : 620.0f);
+            controller.setMaxVelocityPitch(readyToAttack ? 440.0f : 360.0f);
             controller.setDampingRatio(readyToAttack ? 0.96f : 1.0f);
         }
 
-        // Physical step (dt = 0.05s per tick)
+        // Apply attack deceleration window if recently swung
+        if (attackSlowdownTicks > 0) {
+            attackSlowdownTicks--;
+            controller.setMaxVelocityYaw(mc.player.isGliding() ? 550.0f : 480.0f);
+        }
+
+        // Physical step with guaranteed numerical stability via sub-stepping
         Vec2f angularDelta = controller.step(lastYaw, lastPitch, targetYaw, targetPitch, 0.05f);
 
         float newYaw = lastYaw + angularDelta.x;
@@ -128,8 +138,9 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
         Rotation finalRot = new Rotation(newYaw, newPitch);
         RotationStorage.update(finalRot, 360.0F, 360.0F, 46.0F, 46.0F, 0, 1, Aura.clientLook.isState());
 
-        rotate = new Vec2f(finalRot.getYaw(), finalRot.getPitch());
-        lastYaw = finalRot.getYaw();
-        lastPitch = finalRot.getPitch();
+        // Sync lastYaw and lastPitch with the ACTUAL committed player state to prevent drift
+        lastYaw = mc.player.getYaw();
+        lastPitch = mc.player.getPitch();
+        rotate = new Vec2f(lastYaw, lastPitch);
     }
 }

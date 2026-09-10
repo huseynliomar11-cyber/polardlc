@@ -1,5 +1,6 @@
 package snill.client.client.modules.impl.combat.components.rotations.physics;
 
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec2f;
 import snill.client.client.modules.impl.combat.components.gcd.GCDUtil;
 
@@ -11,7 +12,7 @@ import snill.client.client.modules.impl.combat.components.gcd.GCDUtil;
  * Formulas:
  *   x_k = deltaTheta_k + r_k
  *   q_k = round(x_k / gcd) * gcd
- *   r_(k+1) = x_k - q_k
+ *   r_(k+1) = x_k - q_k  (|r| <= 0.5 * gcd)
  */
 public class InputQuantizer {
 
@@ -33,8 +34,12 @@ public class InputQuantizer {
      * @return quantized (qYaw, qPitch) delta
      */
     public Vec2f quantizeDelta(float deltaYaw, float deltaPitch) {
+        if (!Float.isFinite(deltaYaw) || !Float.isFinite(deltaPitch)) {
+            return Vec2f.ZERO;
+        }
+
         float gcd = GCDUtil.getGCDValue();
-        if (gcd <= 0.00005f) {
+        if (gcd <= 0.00005f || !Float.isFinite(gcd)) {
             return new Vec2f(deltaYaw, deltaPitch);
         }
 
@@ -46,17 +51,9 @@ public class InputQuantizer {
         float qYaw = Math.round(xYaw / gcd) * gcd;
         float qPitch = Math.round(xPitch / gcd) * gcd;
 
-        // Accumulate remaining error
-        residualYaw = xYaw - qYaw;
-        residualPitch = xPitch - qPitch;
-
-        // Prevent residual buildup from drifting beyond bounded range
-        if (Math.abs(residualYaw) > gcd * 1.5f) {
-            residualYaw = Math.signum(residualYaw) * gcd * 0.5f;
-        }
-        if (Math.abs(residualPitch) > gcd * 1.5f) {
-            residualPitch = Math.signum(residualPitch) * gcd * 0.5f;
-        }
+        // Save remainder for next frame (theoretically bounded by [-0.5 * gcd, 0.5 * gcd])
+        residualYaw = MathHelper.clamp(xYaw - qYaw, -0.5f * gcd, 0.5f * gcd);
+        residualPitch = MathHelper.clamp(xPitch - qPitch, -0.5f * gcd, 0.5f * gcd);
 
         return new Vec2f(qYaw, qPitch);
     }

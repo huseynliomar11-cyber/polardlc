@@ -310,13 +310,9 @@ public class Aura extends Module {
     private void processSpookyTimeSecondStrike() {
         if (!rotationType.is("SpookyTime") || !spookyTimeRotation.consumeSecondStrike()) return;
         if (target == null || !isValidTarget(target)) return;
+        if (!shouldAttack()) return;
 
-        Vec3d nearestPoint = BestPoint.getNearestPoint(target);
-        if (nearestPoint == null) nearestPoint = target.getBoundingBox().getCenter();
-        if (mc.player.getEyePos().distanceTo(nearestPoint) > getEffectiveRange()) return;
-
-        mc.interactionManager.attackEntity(mc.player, target);
-        mc.player.swingHand(Hand.MAIN_HAND);
+        attack();
     }
 
     public void Rotate() { rotate(); }

@@ -46,17 +46,6 @@ public class HvHRotation extends RotationsSystem implements QClient {
         float newYaw = targetRot.x;
         float newPitch = MathHelper.clamp(targetRot.y, -89.0F, 89.0F);
 
-        // Apply GCD fix
-        float gcd = GCDUtil.getGCDValue();
-        if (gcd > 0.0F && mc.player != null) {
-            float lastYaw = mc.player.getYaw();
-            float lastPitch = mc.player.getPitch();
-            newYaw = lastYaw + Math.round((newYaw - lastYaw) / gcd) * gcd;
-            newPitch = lastPitch + Math.round((newPitch - lastPitch) / gcd) * gcd;
-        }
-
-        newPitch = MathHelper.clamp(newPitch, -89.0F, 89.0F);
-
         Rotation rot = new Rotation(newYaw, newPitch);
         // Instant 360 snap-lock in HvH mode
         RotationStorage.update(rot, 360.0F, 360.0F, 360.0F, 360.0F, 0, 10, Aura.clientLook.isState());

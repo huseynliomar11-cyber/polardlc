@@ -1,0 +1,226 @@
+Да, теперь вижу новый репозиторий и коммит 072ea72. Это действительно существенный рефакторинг: добавлены физический контроллер второго порядка, OU-шум, отдельный квантователь и безопасные настройки Aura по умолчанию.
+
+Источник: https://github.com/huseynliomar11-cyber/polardlc/commit/072ea7223e46a6ad458ace076cc3e3cf570cf48c
+
+Сразу уточню: ниже оцениваю математическую корректность, архитектуру и надёжность, а не способность обходить публичные античиты.
+
+ЧТО СТАЛО ЛУЧШЕ
+
+- SecondOrderPhysicsController, OrnsteinUhlenbeckNoise и InputQuantizer разделены на самостоятельные компоненты.
+- В основных новых режимах удалено ручное округление GCD.
+- Квантование перенесено в RotationStorage и добавлен residual/error-diffusion.
+- throughWalls теперь по умолчанию false, raycast — true; в shouldAttack() появилась дополнительная проверка видимости.
+- Контроллер ограничивает скорость, ускорение и jerk, а шум добавляется к ускорению, а не непосредственно к углу.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/Aura.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/physics/SecondOrderPhysicsController.java
+
+В целом архитектурное направление стало значительно лучше.
+
+КРИТИЧЕСКИЕ ПРОБЛЕМЫ
+
+1. Контроллер численно нестабилен в большинстве режимов
+
+Используется semi-implicit Euler с фиксированным dt = 0.05. Для линейной части системы важна величина:
+
+h = ω_n × Δt
+
+По указанным в коде параметрам я получил следующие спектральные радиусы дискретной системы:
+
+Режим                  Состояние        Спектральный радиус
+FunTime                 обычный          1.62
+FunTime                 перед атакой     2.52
+HolyWorld               обычный          2.25
+HolyWorld               перед атакой     3.34
+ReallyWorld             обычный          1.73
+SuperLegit              обычный          0.61
+
+Значение больше 1 означает, что без ограничителей ошибка и скорость склонны расти и менять знак. То есть FunTime, HolyWorld и ReallyWorld сейчас стабилизируются преимущественно через clamp скорости/ускорения, а не благодаря корректной физике. Это может создавать насыщение, колебания и резкие смены направления. SuperLegit в текущей конфигурации заметно устойчивее.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/FunTimeRotation.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/HolyWorldRotation.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/ReallyWorldRotation.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/SuperLegitRotation.java
+
+Правильное исправление для легитимного camera controller:
+
+- использовать точную дискретизацию системы второго порядка;
+- либо делать несколько устойчивых substeps за tick;
+- либо снижать ω_n × Δt;
+- обязательно тестировать step response без noise и clamp.
+
+2. lastYaw/lastPitch не равны реально применённому состоянию
+
+Профиль делает:
+
+RotationStorage.update(finalRot, ...);
+lastYaw = finalRot.getYaw();
+lastPitch = finalRot.getPitch();
+
+Но RotationStorage после этого квантирует дельту и применяет к игроку уже другой угол. Поэтому на следующем tick контроллер считает текущим неквантованный finalRot, хотя фактическое состояние находится в mc.player.getYaw()/getPitch().
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/api/storages/implement/RotationStorage.java
+
+Это нарушает заявленный принцип authoritative state и может накапливать расхождение. Контроллер должен получать фактически committed ориентацию, а не собственное ожидаемое значение. Лучше, чтобы RotationStorage.update() возвращал применённый RotationSnapshot.
+
+3. Квантование всё ещё не полностью централизовано
+
+В HvHRotation угол сначала вручную округляется по GCD, после чего снова проходит через InputQuantizer внутри RotationStorage. То есть для HvH двойное квантование осталось.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/HvHRotation.java
+
+Дополнительные старые точки квантования:
+
+- PredictRots.rotating() вызывает GCDUtil.getFixedRotation();
+- RotationsSystem.correctRotation() самостоятельно округляет yaw/pitch.
+
+Источники:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/PredictRots.java
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/RotationsSystem.java
+
+Если эти методы передают результат в RotationStorage, проблема возвращается. В идеале GCDUtil должен вызываться только из InputQuantizer.
+
+4. SpookyTime всё ещё обходит собственную валидацию
+
+Ручной GCD из финального угла удалён, но большая часть старой реализации сохранилась:
+
+- периодические sin/cos;
+- flick на 22–34°;
+- второй удар через tick;
+- множество дополнительных jerk/shake состояний.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/SpookyTimeRotation.java
+
+Главная логическая ошибка не исправлена: processSpookyTimeSecondStrike() напрямую вызывает attackEntity() без shouldAttack(), raycast, cooldown, sprint-reset и основной проверки критического удара.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/Aura.java
+
+Все атаки должны проходить через один AttackValidator и один метод отправки.
+
+ДРУГИЕ НАЙДЕННЫЕ ПРОБЛЕМЫ
+
+Изменения в onAttack() фактически не работают
+
+В FunTimeRotation.onAttack() устанавливается maxVelocityYaw = 550, но на следующем updateRotations() значение сразу заменяется на 850 или 1100.
+
+То же самое в HolyWorld: onAttack() задаёт 600, после чего updateRotations() устанавливает 750 или 920. Следовательно, эти обработчики почти не оказывают ожидаемого эффекта.
+
+Фиксированный dt
+
+Все режимы передают 0.05f, предполагая ровно один вызов на tick и стабильные 20 TPS. Если EventGameUpdate вызывается иначе, клиент зависает или выполняет несколько обновлений, физическое время перестаёт соответствовать реальному.
+
+Нужно либо гарантировать fixed-step scheduler, либо передавать измеренный dt, ограниченный разумным диапазоном.
+
+Состояние при блокировании и смене режима
+
+При блокировании профиль обновляет lastYaw/lastPitch, но не сбрасывает velocity и acceleration контроллера. После отпускания блока может вернуться старая скорость и возникнуть рывок.
+
+Также при переключении режима во время сохранения одной цели неактивный профиль может содержать устаревшие:
+
+- lastYaw;
+- lastPitch;
+- velocity;
+- acceleration;
+- OU state.
+
+Нужен общий onActivate(currentRotation, target) для каждого профиля.
+
+Заявление про шум 8–12 Hz математически неверно
+
+В SuperLegit написано, что OU с tau = 0.18 имитирует шум 8–12 Hz. Частота среза OU приблизительно равна:
+
+f_c = 1 / (2π × tau)
+
+Для tau = 0.18 это около 0.88 Hz, а не 8–12 Hz. Кроме того, при обновлении 20 раз в секунду частота Найквиста равна 10 Hz, поэтому компонент 12 Hz вообще нельзя корректно представить — он будет aliasing.
+
+Текущую реализацию правильнее называть низкочастотным коррелированным шумом.
+
+Регулярность полностью не исчезла
+
+Несмотря на OU-контроллер:
+
+- ReallyWorld всё ещё увеличивает фазу ровно на 0.06 и движет точку по эллипсу;
+- SuperLegit сохраняет синусоидальное «дыхание»;
+- SpookyTime содержит несколько фиксированных синусоид и косинусов.
+
+То есть OU добавился поверх регулярных траекторий, но не заменил их.
+
+InputQuantizer
+
+Residual/error-diffusion реализован в целом правильно. Но:
+
+- после round() остаток математически должен лежать примерно в пределах ±0.5 GCD, поэтому проверка > 1.5 GCD практически недостижима;
+- residual сбрасывается только в stopRotation();
+- при смене цели или профиля он может переноситься между независимыми контроллерами;
+- нет защиты от NaN и бесконечных значений.
+
+Источник:
+https://github.com/huseynliomar11-cyber/polardlc/blob/main/src/main/java/snill/client/client/modules/impl/combat/components/rotations/physics/InputQuantizer.java
+
+Переписаны не все режимы
+
+Новый контроллер реально используют:
+
+- FunTime;
+- HolyWorld;
+- ReallyWorld;
+- SuperLegit.
+
+При этом:
+
+- GrimLite и Sloth остались на старой схеме;
+- SpookyTime почти полностью старый;
+- HvH и PredictRots не мигрированы;
+- GrimLite, Sloth и PredictRots по-прежнему отсутствуют в списке rotationType;
+- проверка "Neuro" остаётся, хотя такого значения нет в ModeSetting.
+
+Поэтому это пока не полная миграция всех ротаций.
+
+RAYCAST
+
+Безопасные значения по умолчанию — хорошее исправление. Но:
+
+- rwWallBypass всё ещё отключает обычные raycast/LOS-ограничения;
+- Spooky second strike проходит мимо них;
+- entity raycast использует getCameraPosVec(1.0F), а последующие проверки расстояния — getEyePos(), то есть берутся потенциально разные snapshots.
+
+Для корректности один tick должен использовать один immutable CombatSnapshot: origin, orientation, target box и время.
+
+СБОРКА И ТЕСТЫ
+
+В репозитории сейчас нет GitHub Actions и нет опубликованного результата сборки, поэтому успешная компиляция коммита автоматически не подтверждена.
+
+Источник:
+https://api.github.com/repos/huseynliomar11-cyber/polardlc/actions/runs?branch=main&per_page=5
+
+Минимально нужны тесты:
+
+1. Step response контроллера без шума.
+2. Отсутствие расходимости при разных dt.
+3. Проверка wrap около −180°/180°.
+4. Инвариант квантователя: результат кратен GCD.
+5. Ограниченная накопленная ошибка residual.
+6. Переключение режима при активной цели.
+7. Block → unblock без скачка.
+8. Ровно один committed rotation за simulation tick.
+9. Любая атака, включая Spooky second strike, проходит общий валидатор.
+10. CI-команда ./gradlew build.
+
+ИТОГ
+
+Рефакторинг хороший по направлению, но пока не готов технически. Самые важные исправления:
+
+1. стабилизировать дискретную физическую модель;
+2. сделать фактически применённый угол единственным источником состояния;
+3. убрать оставшиеся GCD-вызовы за пределами InputQuantizer;
+4. провести все атаки через единый валидатор;
+5. корректно сбрасывать контроллеры при переключении режима и блокировании;
+6. добавить тесты и CI.
+
+После этих изменений архитектура станет действительно цельной. Сейчас я бы оценил её как сильный прототип, но не production-ready.
