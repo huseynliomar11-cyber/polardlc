@@ -100,4 +100,5 @@ public interface ModuleRewords {
     HitSounds hitSounds = HitSounds.INSTANCE;
     CustomCrosshair customCrosshair = CustomCrosshair.INSTANCE;
     AspectRatio aspectRatio = AspectRatio.INSTANCE;
+    MotionBlur motionBlur = MotionBlur.INSTANCE;
 }

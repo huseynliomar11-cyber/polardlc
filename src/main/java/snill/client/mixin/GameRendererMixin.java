@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import snill.client.api.storages.implement.helpertstorages.enumvar.ModuleClass;
 import snill.client.api.utils.render.RenderUtils;
 import snill.client.client.modules.impl.render.AspectRatio;
+import snill.client.client.modules.impl.render.MotionBlur;
 import snill.client.client.modules.impl.render.Removals;
 
 @Mixin(GameRenderer.class)
@@ -57,6 +58,18 @@ public abstract class GameRendererMixin {
     )
     private void snill$captureBlurBeforeHud(RenderTickCounter tickCounter, boolean tick, CallbackInfo ci) {
         RenderUtils.beginLiquidBlurFrame();
+    }
+
+    @Inject(method = "renderWorld", at = @At("RETURN"))
+    private void snill$applyMotionBlur(RenderTickCounter tickCounter, CallbackInfo ci) {
+        if (ModuleClass.INSTANCE == null) {
+            return;
+        }
+
+        MotionBlur motionBlur = MotionBlur.INSTANCE;
+        if (motionBlur != null && motionBlur.isEnable()) {
+            motionBlur.applyMotionBlur();
+        }
     }
 
     @Inject(method = "renderHand", at = @At("HEAD"))

@@ -107,6 +107,8 @@ public class LocalizationStorage {
         add("AspectRatio", "Aspect Ratio", "Співвідношення сторін");
         add("Соотношение", "Ratio", "Співвідношення");
         add("Влиять на руки", "Affect Hands", "Впливати на руки");
+        add("MotionBlur", "Motion Blur", "Розмиття руху");
+        add("Интенсивность", "Intensity", "Інтенсивність");
     }
 
     private void add(String key, String english, String ukrainian) {
