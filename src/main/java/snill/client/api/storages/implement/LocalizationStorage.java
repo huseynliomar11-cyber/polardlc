@@ -109,6 +109,10 @@ public class LocalizationStorage {
         add("Влиять на руки", "Affect Hands", "Впливати на руки");
         add("MotionBlur", "Motion Blur", "Розмиття руху");
         add("Интенсивность", "Intensity", "Інтенсивність");
+        add("Режим", "Mode", "Режим");
+        add("Плавная камера", "Smooth Camera", "Плавна камера");
+        add("TikTok Эдит", "TikTok Edit", "TikTok Едіт");
+        add("Динамический PvP", "Dynamic PvP", "Динамічний PvP");
     }
 
     private void add(String key, String english, String ukrainian) {

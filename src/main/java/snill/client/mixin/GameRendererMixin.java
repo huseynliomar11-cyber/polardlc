@@ -60,19 +60,13 @@ public abstract class GameRendererMixin {
             )
     )
     private void snill$captureBlurBeforeHud(RenderTickCounter tickCounter, boolean tick, CallbackInfo ci) {
+        if (ModuleClass.INSTANCE != null) {
+            MotionBlur motionBlur = MotionBlur.INSTANCE;
+            if (motionBlur != null && motionBlur.isEnable()) {
+                motionBlur.applyMotionBlur(this.getCamera());
+            }
+        }
         RenderUtils.beginLiquidBlurFrame();
-    }
-
-    @Inject(method = "renderWorld", at = @At("RETURN"))
-    private void snill$applyMotionBlur(RenderTickCounter tickCounter, CallbackInfo ci) {
-        if (ModuleClass.INSTANCE == null) {
-            return;
-        }
-
-        MotionBlur motionBlur = MotionBlur.INSTANCE;
-        if (motionBlur != null && motionBlur.isEnable()) {
-            motionBlur.applyMotionBlur(this.getCamera());
-        }
     }
 
     @Inject(method = "renderHand", at = @At("HEAD"))
