@@ -14,7 +14,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import snill.client.api.utils.input.KeyBoardUtils;
 import snill.client.client.modules.impl.render.Browser;
-import snill.client.client.modules.impl.render.MotionBlur;
 
 @Mixin(Mouse.class)
 public abstract class MouseMixin {
@@ -82,14 +81,6 @@ public abstract class MouseMixin {
             i = this.cursorDeltaX * scaled;
             j = this.cursorDeltaY * scaled;
 
-            MotionBlur motionBlur = MotionBlur.INSTANCE;
-            if (motionBlur != null && motionBlur.isEnable()) {
-               motionBlur.onMouseDelta(i, j);
-               if (motionBlur.shouldSmoothCamera()) {
-                  i = motionBlur.smoothMouse(i, true);
-                  j = motionBlur.smoothMouse(j, false);
-               }
-            }
          }
 
          int invert = this.client.options.getInvertYMouse().getValue() ? -1 : 1;

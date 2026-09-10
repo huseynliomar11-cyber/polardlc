@@ -107,14 +107,6 @@ public class LocalizationStorage {
         add("AspectRatio", "Aspect Ratio", "Співвідношення сторін");
         add("Соотношение", "Ratio", "Співвідношення");
         add("Влиять на руки", "Affect Hands", "Впливати на руки");
-        add("MotionBlur", "Motion Blur", "Розмиття руху");
-        add("Интенсивность", "Intensity", "Інтенсивність");
-        add("Режим", "Mode", "Режим");
-        add("Плавная камера", "Smooth Camera", "Плавна камера");
-        add("TikTok RSMB", "TikTok RSMB", "TikTok RSMB");
-        add("Cinematic", "Cinematic", "Кінематографічний");
-        add("PvP Clean", "PvP Clean", "PvP Чистий");
-        add("RGB Сплит (TikTok)", "RGB Split (TikTok)", "RGB Спліт (TikTok)");
     }
 
     private void add(String key, String english, String ukrainian) {
