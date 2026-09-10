@@ -11,7 +11,7 @@ import snill.client.api.utils.rotate.Rotation;
 import snill.client.api.utils.rotate.RotationUtils;
 import snill.client.client.modules.impl.combat.Aura;
 import snill.client.client.modules.impl.combat.components.RotationsSystem;
-import snill.client.client.modules.impl.combat.components.gcd.GCDUtil;
+import snill.client.client.modules.impl.combat.components.rotations.physics.SecondOrderPhysicsController;
 
 public class ReallyWorldRotation extends RotationsSystem implements QClient {
 
@@ -20,10 +20,21 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
     private float lastYaw;
     private float lastPitch;
     private boolean initialized;
-    private int ticks;
 
     // Pitch damping and drifting for Matrix bypass
     private double driftAngle;
+
+    // 2nd-order physics controller with overdamped characteristics to bypass Matrix angle-derivative checks
+    private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
+            20.0f,  // Natural frequency omega_n
+            1.05f,  // Damping ratio zeta (slightly overdamped for buttery, non-spiking tracking)
+            700.0f, // Max yaw velocity (deg/s)
+            380.0f, // Max pitch velocity (deg/s - Matrix heavily checks pitch acceleration)
+            4000.0f,// Max acceleration (deg/s^2)
+            20000.0f,// Max jerk (deg/s^3)
+            0.16f,  // OU noise tau
+            60.0f   // OU noise sigma
+    );
 
     public ReallyWorldRotation(Aura aura) {
         this.aura = aura;
@@ -31,8 +42,8 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
 
     public void reset() {
         trackedTarget = null;
-        ticks = 0;
         driftAngle = 0.0D;
+        controller.reset();
         initialized = mc.player != null;
         if (mc.player != null) {
             lastYaw = mc.player.getYaw();
@@ -65,17 +76,16 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
 
         if (trackedTarget != target) {
             trackedTarget = target;
-            ticks = 0;
             driftAngle = Math.random() * Math.PI * 2;
+            controller.reset();
         }
 
-        ticks++;
-        driftAngle += 0.08D;
+        driftAngle += 0.06D;
 
         // Subtle elliptical drift across the body to avoid Matrix static angle detection
         Box box = target.getBoundingBox();
-        double width = (box.maxX - box.minX) * 0.35D;
-        double height = (box.maxY - box.minY) * 0.20D;
+        double width = (box.maxX - box.minX) * 0.32D;
+        double height = (box.maxY - box.minY) * 0.18D;
 
         Vec3d center = box.getCenter();
         Vec3d aimPoint = new Vec3d(
@@ -92,30 +102,15 @@ public class ReallyWorldRotation extends RotationsSystem implements QClient {
         float targetYaw = targetRot.x;
         float targetPitch = targetRot.y;
 
-        float yawDelta = MathHelper.wrapDegrees(targetYaw - lastYaw);
-        float pitchDelta = targetPitch - lastPitch;
+        // Step physics model
+        Vec2f angularDelta = controller.step(lastYaw, lastPitch, targetYaw, targetPitch, 0.05f);
 
-        // Cubic ease-out interpolation to completely avoid Matrix linear check
-        float distFactor = MathHelper.clamp(Math.abs(yawDelta) / 180.0F, 0.05F, 1.0F);
-        float ease = 1.0F - (float) Math.pow(1.0F - distFactor, 3);
-        float yawSpeed = MathHelper.clamp(0.45F + ease * 0.35F, 0.30F, 0.80F);
-        // Pitch damping: Matrix heavily flags violent pitch spikes
-        float pitchSpeed = yawSpeed * 0.62F;
+        float newYaw = lastYaw + angularDelta.x;
+        float newPitch = MathHelper.clamp(lastPitch + angularDelta.y, -89.0F, 89.0F);
 
-        float newYaw = lastYaw + yawDelta * yawSpeed;
-        float newPitch = lastPitch + pitchDelta * pitchSpeed;
-
-        // Strict GCD rounding
-        float gcd = GCDUtil.getGCDValue();
-        if (gcd > 0.0F) {
-            newYaw = lastYaw + Math.round((newYaw - lastYaw) / gcd) * gcd;
-            newPitch = lastPitch + Math.round((newPitch - lastPitch) / gcd) * gcd;
-        }
-
-        newPitch = MathHelper.clamp(newPitch, -89.0F, 89.0F);
-
+        // Authoritative single quantization via RotationStorage
         Rotation rot = new Rotation(newYaw, newPitch);
-        RotationStorage.update(rot, 110, 80, 45, 35, 0, 1, Aura.clientLook.isState());
+        RotationStorage.update(rot, 360.0F, 360.0F, 45.0F, 35.0F, 0, 1, Aura.clientLook.isState());
 
         rotate = new Vec2f(rot.getYaw(), rot.getPitch());
         lastYaw = rot.getYaw();

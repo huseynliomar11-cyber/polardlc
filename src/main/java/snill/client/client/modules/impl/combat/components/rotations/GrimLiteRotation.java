@@ -148,12 +148,6 @@ public class GrimLiteRotation extends RotationsSystem implements QClient {
         float newYaw = lastYaw + deltaYaw * yawSpeed;
         float newPitch = lastPitch + deltaPitch * pitchSpeed;
 
-        float gcd = GCDUtil.getGCDValue();
-        if (gcd > 0.0F) {
-            newYaw = lastYaw + Math.round((newYaw - lastYaw) / gcd) * gcd;
-            newPitch = lastPitch + Math.round((newPitch - lastPitch) / gcd) * gcd;
-        }
-
         newPitch = MathHelper.clamp(newPitch, -89.0F, 89.0F);
 
         Rotation finalRot = new Rotation(newYaw, newPitch);

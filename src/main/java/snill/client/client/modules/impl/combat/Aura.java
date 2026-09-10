@@ -86,8 +86,8 @@ public class Aura extends Module {
     private final FloatSetting elytraAimRange = new FloatSetting("Дистанция на элитрах", 50f, 10f, 100f, 0.05f);
     public final BooleanSetting smartCrit = new BooleanSetting("Умные криты", false);
     public final BooleanSetting sprintReset = new BooleanSetting("Сброс спринта", true);
-    private final BooleanSetting throughWalls = new BooleanSetting("Бить через стены", true);
-    private final BooleanSetting raycast = new BooleanSetting("Проверка на наведение", false);
+    private final BooleanSetting throughWalls = new BooleanSetting("Бить через стены", false);
+    private final BooleanSetting raycast = new BooleanSetting("Проверка на наведение", true);
     private final BooleanSetting unpressShield = new BooleanSetting("Отжимать щит", false);
     private final BooleanSetting breakShield = new BooleanSetting("Ломать щит", true);
     private final BooleanSetting attackOnEating = new BooleanSetting("Не бить когда ешь", true);
@@ -601,6 +601,7 @@ public class Aura extends Module {
         EntityHitResult result = getAttackRaycastResult();
         boolean aimOnTarget = isCurrentAimOnTarget();
         if (raycast.isState() && !isUsingRwWallBypass() && !aimOnTarget) return false;
+        if (!throughWalls.isState() && !isUsingRwWallBypass() && !mc.player.canSee(target)) return false;
         if (isNeuroRotation() && !isUsingRwWallBypass() && !isDataAimReady(result, aimOnTarget)) return false;
         if (mc.player.isGliding() && target.isGliding()) {
             ElytraTarget elytraTarget = ElytraTarget.INSTANCE;

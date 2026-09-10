@@ -11,8 +11,7 @@ import snill.client.api.utils.rotate.Rotation;
 import snill.client.api.utils.rotate.RotationUtils;
 import snill.client.client.modules.impl.combat.Aura;
 import snill.client.client.modules.impl.combat.components.RotationsSystem;
-import snill.client.client.modules.impl.combat.components.gcd.GCDUtil;
-import snill.client.client.modules.impl.combat.components.interpolation.BestPoint;
+import snill.client.client.modules.impl.combat.components.rotations.physics.SecondOrderPhysicsController;
 
 public class HolyWorldRotation extends RotationsSystem implements QClient {
 
@@ -20,9 +19,19 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
     private LivingEntity trackedTarget;
     private float lastYaw;
     private float lastPitch;
-    private float speedAcc;
     private boolean initialized;
-    private int ticks;
+
+    // 2nd-order physics controller tuned for HolyWorld snappy aim and crit focus
+    private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
+            26.0f,  // Natural frequency omega_n (snappy response)
+            0.94f,  // Damping ratio zeta
+            850.0f, // Max yaw velocity (deg/s)
+            520.0f, // Max pitch velocity (deg/s)
+            6000.0f,// Max acceleration (deg/s^2)
+            35000.0f,// Max jerk (deg/s^3)
+            0.12f,  // OU noise tau (s)
+            75.0f   // OU noise sigma
+    );
 
     public HolyWorldRotation(Aura aura) {
         this.aura = aura;
@@ -30,8 +39,7 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
 
     public void reset() {
         trackedTarget = null;
-        speedAcc = 0.0F;
-        ticks = 0;
+        controller.reset();
         initialized = mc.player != null;
         if (mc.player != null) {
             lastYaw = mc.player.getYaw();
@@ -43,7 +51,7 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
     }
 
     public void onAttack() {
-        speedAcc = Math.min(speedAcc, 0.60F);
+        controller.setMaxVelocityYaw(600.0f);
     }
 
     @Override
@@ -65,11 +73,8 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
 
         if (trackedTarget != target) {
             trackedTarget = target;
-            speedAcc = 0.0F;
-            ticks = 0;
+            controller.reset();
         }
-
-        ticks++;
 
         // Target upper body (chest/head) for max crit chance on HolyWorld
         Box box = target.getBoundingBox();
@@ -87,30 +92,21 @@ public class HolyWorldRotation extends RotationsSystem implements QClient {
         float targetYaw = targetRot.x;
         float targetPitch = targetRot.y;
 
-        float yawDelta = MathHelper.wrapDegrees(targetYaw - lastYaw);
-        float pitchDelta = targetPitch - lastPitch;
-
         boolean readyToHit = mc.player.getAttackCooldownProgress(1.0F) > 0.88F;
-        float jitter = (float) (Math.sin(ticks * 0.16D) * 0.05D);
 
-        // Accelerated turn towards target on HolyWorld
-        float speed = readyToHit ? 0.82F : 0.65F;
-        speedAcc = MathHelper.clamp(speedAcc + 0.06F, 0.25F, 1.0F);
+        // Dynamic acceleration boost for HolyWorld hit timings
+        controller.setNaturalFrequency(readyToHit ? 29.0f : 24.0f);
+        controller.setMaxVelocityYaw(readyToHit ? 920.0f : 750.0f);
 
-        float newYaw = lastYaw + yawDelta * (speed * speedAcc + jitter);
-        float newPitch = lastPitch + pitchDelta * (speed * speedAcc * 0.85F);
+        // Step physics model (dt = 0.05s)
+        Vec2f angularDelta = controller.step(lastYaw, lastPitch, targetYaw, targetPitch, 0.05f);
 
-        // GCD alignment with true player sensitivity
-        float gcd = GCDUtil.getGCDValue();
-        if (gcd > 0.0F) {
-            newYaw = lastYaw + Math.round((newYaw - lastYaw) / gcd) * gcd;
-            newPitch = lastPitch + Math.round((newPitch - lastPitch) / gcd) * gcd;
-        }
+        float newYaw = lastYaw + angularDelta.x;
+        float newPitch = MathHelper.clamp(lastPitch + angularDelta.y, -89.0F, 89.0F);
 
-        newPitch = MathHelper.clamp(newPitch, -89.0F, 89.0F);
-
+        // Single-point authoritative quantization handled by RotationStorage
         Rotation rot = new Rotation(newYaw, newPitch);
-        RotationStorage.update(rot, 130, 130, 50, 50, 0, 1, Aura.clientLook.isState());
+        RotationStorage.update(rot, 360.0F, 360.0F, 50.0F, 50.0F, 0, 1, Aura.clientLook.isState());
 
         rotate = new Vec2f(rot.getYaw(), rot.getPitch());
         lastYaw = rot.getYaw();

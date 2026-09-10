@@ -10,8 +10,8 @@ import snill.client.api.utils.rotate.Rotation;
 import snill.client.api.utils.rotate.RotationUtils;
 import snill.client.client.modules.impl.combat.Aura;
 import snill.client.client.modules.impl.combat.components.RotationsSystem;
-import snill.client.client.modules.impl.combat.components.gcd.GCDUtil;
 import snill.client.client.modules.impl.combat.components.interpolation.BestPoint;
+import snill.client.client.modules.impl.combat.components.rotations.physics.SecondOrderPhysicsController;
 
 public class FunTimeRotation extends RotationsSystem implements QClient {
 
@@ -19,11 +19,19 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
     private LivingEntity trackedTarget;
     private float lastYaw;
     private float lastPitch;
-    private float speedAcceleration;
-    private boolean back;
     private boolean initialized;
-    private float jitterOffset;
-    private int tickCounter;
+
+    // 2nd-order mass-spring-damper controller tuned for FunTime / GrimAC
+    private final SecondOrderPhysicsController controller = new SecondOrderPhysicsController(
+            22.0f,  // Natural frequency omega_n
+            0.98f,  // Damping ratio zeta (critically damped, no artificial overshoot)
+            720.0f, // Max yaw velocity (deg/s)
+            480.0f, // Max pitch velocity (deg/s)
+            5000.0f,// Max acceleration (deg/s^2)
+            30000.0f,// Max jerk (deg/s^3)
+            0.14f,  // OU noise correlation tau (s)
+            100.0f  // OU noise sigma on acceleration
+    );
 
     public FunTimeRotation(Aura aura) {
         this.aura = aura;
@@ -31,10 +39,7 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
 
     public void reset() {
         trackedTarget = null;
-        speedAcceleration = 0.0F;
-        back = false;
-        jitterOffset = 0.0F;
-        tickCounter = 0;
+        controller.reset();
         initialized = mc.player != null;
 
         if (mc.player != null) {
@@ -48,8 +53,7 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
 
     public void onAttack() {
         if (mc.player != null && mc.player.isGliding()) {
-            speedAcceleration = Math.min(speedAcceleration, 0.45F);
-            back = false;
+            controller.setMaxVelocityYaw(550.0f);
         }
     }
 
@@ -72,14 +76,8 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
 
         if (trackedTarget != target) {
             trackedTarget = target;
-            speedAcceleration = 0.0F;
-            back = false;
-            tickCounter = 0;
+            controller.reset();
         }
-
-        tickCounter++;
-        // Natural micro-noise for GrimAC bypass
-        jitterOffset = (float) (Math.sin(tickCounter * 0.14D) * 0.06D + (Math.random() - 0.5D) * 0.02D);
 
         // Find best multipoint on hitbox (chest / head area)
         Vec3d point = BestPoint.getMultipoint(target, 128.0);
@@ -100,68 +98,35 @@ public class FunTimeRotation extends RotationsSystem implements QClient {
         boolean passedTarget = mc.player.isGliding()
                 && flightVelocity.lengthSquared() > 0.0025D
                 && flightVelocity.normalize().dotProduct(new Vec3d(targetOffset.x, 0.0D, targetOffset.z)) < -0.45D;
+
         if (mc.player.isGliding() && targetDistance <= 4.25D) {
             targetPitch = MathHelper.clamp(targetPitch, -35.0F, 25.0F);
         }
 
-        float yawDiff = Math.abs(MathHelper.wrapDegrees(targetYaw - lastYaw));
         boolean readyToAttack = mc.player.getAttackCooldownProgress(1.0F) > 0.85F && aura.getWhiteRiseTicksToAttack() <= 1;
 
-        // Smooth acceleration curve
-        if (!back) {
-            float gain = 0.045F;
-            if (yawDiff > 60.0F) {
-                gain += 0.016F * 1.8F;
-            } else if (yawDiff > 50.0F) {
-                gain += 0.042F * 1.9F;
-            } else {
-                gain += 0.016F * 1.7F;
-            }
-            if (readyToAttack) {
-                gain += 0.017F / 1.4F;
-            }
-            speedAcceleration += gain * (1.0F + jitterOffset);
-            if (speedAcceleration >= 1.15F) back = true;
+        // Adapt controller dynamics dynamically
+        if (mc.player.isGliding()) {
+            controller.setNaturalFrequency(passedTarget ? 16.0f : 24.0f);
+            controller.setMaxVelocityYaw(passedTarget ? 1100.0f : 850.0f);
+            controller.setMaxVelocityPitch(600.0f);
+            controller.setDampingRatio(1.05f);
         } else {
-            float loss = readyToAttack ? 0.12F : 0.07F;
-            speedAcceleration -= loss * (1.0F + jitterOffset);
-            if (speedAcceleration <= 0.30F) back = false;
+            controller.setNaturalFrequency(readyToAttack ? 25.0f : 20.0f);
+            controller.setMaxVelocityYaw(readyToAttack ? 780.0f : 650.0f);
+            controller.setMaxVelocityPitch(readyToAttack ? 460.0f : 380.0f);
+            controller.setDampingRatio(readyToAttack ? 0.96f : 1.0f);
         }
 
-        float smooth = MathHelper.clamp(speedAcceleration, mc.player.isGliding() ? 2.8F : 0.7F, mc.player.isGliding() ? 7.3F : 6.7F);
-        if (readyToAttack) {
-            smooth = Math.min(smooth + 0.1F, mc.player.isGliding() ? 7.0F : 6.0F);
-        }
-        smooth += jitterOffset;
+        // Physical step (dt = 0.05s per tick)
+        Vec2f angularDelta = controller.step(lastYaw, lastPitch, targetYaw, targetPitch, 0.05f);
 
-        float deltaYaw = MathHelper.wrapDegrees(targetYaw - lastYaw);
-        float deltaPitch = targetPitch - lastPitch;
+        float newYaw = lastYaw + angularDelta.x;
+        float newPitch = MathHelper.clamp(lastPitch + angularDelta.y, -89.0F, 89.0F);
 
-        float yawLimit = mc.player.isGliding() ? (passedTarget ? 180.0F : 150.0F) : (readyToAttack ? 7.7F : 7.9F);
-        float pitchLimit = mc.player.isGliding() ? 55.0F : (readyToAttack ? 3.5F : 3.8F);
-
-        deltaYaw = MathHelper.clamp(deltaYaw, -yawLimit, yawLimit);
-        deltaPitch = MathHelper.clamp(deltaPitch, -pitchLimit, pitchLimit);
-
-        float pitchSpeed = mc.player.isGliding() ? MathHelper.clamp(smooth * 0.18F, 0.35F, 0.92F) : smooth * 0.06F;
-        float yawSpeed = mc.player.isGliding()
-                ? MathHelper.clamp(smooth * (passedTarget ? 0.30F : 0.22F), passedTarget ? 0.78F : 0.52F, 0.98F)
-                : Math.max(0.02F, smooth * (0.61F + jitterOffset));
-
-        float newYaw = lastYaw + deltaYaw * yawSpeed;
-        float newPitch = lastPitch + deltaPitch * pitchSpeed;
-
-        // Apply GCD fix with real player sensitivity
-        float gcd = GCDUtil.getGCDValue();
-        if (gcd > 0.0F) {
-            newYaw = lastYaw + Math.round((newYaw - lastYaw) / gcd) * gcd;
-            newPitch = lastPitch + Math.round((newPitch - lastPitch) / gcd) * gcd;
-        }
-
-        newPitch = MathHelper.clamp(newPitch, -89.0F, 89.0F);
-
+        // RotationStorage performs the single-point authoritative quantization
         Rotation finalRot = new Rotation(newYaw, newPitch);
-        RotationStorage.update(finalRot, 116, 116, 46, 46, 0, 1, Aura.clientLook.isState());
+        RotationStorage.update(finalRot, 360.0F, 360.0F, 46.0F, 46.0F, 0, 1, Aura.clientLook.isState());
 
         rotate = new Vec2f(finalRot.getYaw(), finalRot.getPitch());
         lastYaw = finalRot.getYaw();

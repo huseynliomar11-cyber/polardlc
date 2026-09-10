@@ -138,6 +138,8 @@ public class RotationStorage implements QClient {
         update(targetRotation, yawSpeed, pitchSpeed, returnSpeed, returnSpeed, timeout, priority, false);
     }
 
+    private final snill.client.client.modules.impl.combat.components.rotations.physics.InputQuantizer quantizer = new snill.client.client.modules.impl.combat.components.rotations.physics.InputQuantizer();
+
     private boolean updateRotation(Rotation targetRotation, float yawSpeed, float pitchSpeed) {
         if (mc.player == null) return false;
 
@@ -148,10 +150,16 @@ public class RotationStorage implements QClient {
         float clampedYaw = Math.min(Math.abs(yawDelta), yawSpeed);
         float clampedPitch = Math.min(Math.abs(pitchDelta), pitchSpeed);
 
-        float yaw = mc.player.getYaw();
-        yaw += GCDUtil.getFixedRotation(MathHelper.clamp(yawDelta, -clampedYaw, clampedYaw));
+        float rawDeltaYaw = MathHelper.clamp(yawDelta, -clampedYaw, clampedYaw);
+        float rawDeltaPitch = MathHelper.clamp(pitchDelta, -clampedPitch, clampedPitch);
+
+        // Single authoritative quantization point with residual error diffusion
+        net.minecraft.util.math.Vec2f quantized = quantizer.quantizeDelta(rawDeltaYaw, rawDeltaPitch);
+
+        float yaw = mc.player.getYaw() + quantized.x;
+        float pitch = MathHelper.clamp(mc.player.getPitch() + quantized.y, -89.9F, 89.9F);
         mc.player.setYaw(yaw);
-        mc.player.setPitch(MathHelper.clamp(mc.player.getPitch() + GCDUtil.getFixedRotation(MathHelper.clamp(pitchDelta, -clampedPitch, clampedPitch)), -90F, 90F));
+        mc.player.setPitch(pitch);
 
         idleTicks(0);
         return new Rotation(mc.player).getDelta(targetRotation) < 1F;
@@ -161,6 +169,7 @@ public class RotationStorage implements QClient {
         currentTask(RotationTask.IDLE);
         currentPriority(0);
         FreeLookStorage.setActive(false);
+        quantizer.reset();
     }
 
     public boolean isRotating() {

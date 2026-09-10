@@ -231,12 +231,6 @@ public class SpookyTimeRotation extends RotationsSystem implements QClient {
             newYaw += attackFlickYaw;
         }
 
-        float gcd = GCDUtil.getGCDValue();
-        if (gcd > 0.0F) {
-            newYaw = currentYaw + Math.round((newYaw - currentYaw) / gcd) * gcd;
-            newPitch = currentPitch + Math.round((newPitch - currentPitch) / gcd) * gcd;
-        }
-
         newPitch = MathHelper.clamp(newPitch, -89.0F, 89.0F);
 
         RotationStorage.update(

@@ -17,13 +17,18 @@ public abstract class RotationsSystem implements QClient {
     public abstract void updateRotations(LivingEntity target);
 
     public static Vec2f correctRotation(float yaw, float pitch) {
+        if (mc.player == null) return new Vec2f(yaw, pitch);
         if ((yaw == -90 && pitch == 90) || yaw == -180) return new Vec2f(mc.player.getYaw(), mc.player.getPitch());
 
-        float gcd = GCDUtil.getGCD();
-        yaw -= yaw % gcd;
-        pitch -= pitch % gcd;
+        float gcd = GCDUtil.getGCDValue();
+        if (gcd <= 0.0001f) return new Vec2f(yaw, pitch);
 
-        return new Vec2f(yaw, pitch);
+        float deltaYaw = yaw - mc.player.getYaw();
+        float deltaPitch = pitch - mc.player.getPitch();
+        float fixedYaw = mc.player.getYaw() + Math.round(deltaYaw / gcd) * gcd;
+        float fixedPitch = mc.player.getPitch() + Math.round(deltaPitch / gcd) * gcd;
+
+        return new Vec2f(fixedYaw, net.minecraft.util.math.MathHelper.clamp(fixedPitch, -89.9f, 89.9f));
     }
 
     protected boolean shouldUseElytraPredict(LivingEntity target) {
