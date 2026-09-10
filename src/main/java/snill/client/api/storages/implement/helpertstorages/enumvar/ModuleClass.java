@@ -102,7 +102,8 @@ public class ModuleClass extends GlobalObject<Module> implements ModuleRewords {
                 fastBreak,
                 browser,
                 hitSounds,
-                customCrosshair
+                customCrosshair,
+                aspectRatio
         );
     }
 

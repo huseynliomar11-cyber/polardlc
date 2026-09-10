@@ -104,6 +104,9 @@ public class LocalizationStorage {
         add("Крылья 2", "Wings 2", "Крила 2");
         add("Китайская шляпа", "China Hat", "Китайський капелюх");
         add("Figura", "Figura", "Figura");
+        add("AspectRatio", "Aspect Ratio", "Співвідношення сторін");
+        add("Соотношение", "Ratio", "Співвідношення");
+        add("Влиять на руки", "Affect Hands", "Впливати на руки");
     }
 
     private void add(String key, String english, String ukrainian) {

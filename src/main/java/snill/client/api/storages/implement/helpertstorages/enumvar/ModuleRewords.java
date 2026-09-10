@@ -99,4 +99,5 @@ public interface ModuleRewords {
     Browser browser = Browser.INSTANCE;
     HitSounds hitSounds = HitSounds.INSTANCE;
     CustomCrosshair customCrosshair = CustomCrosshair.INSTANCE;
+    AspectRatio aspectRatio = AspectRatio.INSTANCE;
 }
