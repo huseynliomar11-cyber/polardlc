@@ -27,25 +27,31 @@ import snill.client.api.utils.scissor.ScissorUtils;
 import snill.client.client.modules.impl.render.base.InterfaceProcessing;
 
 /**
- * MusicHud "Aurora" — компактный музыкальный виджет, масштабированный на 0.80x (-20%)
- * с увеличенным сочным эквалайзером (9 баров).
+ * MusicHud "Aurora" — ультракомпактный музыкальный виджет:
+ * масштаб 0.72x (-10% от предыдущего), увеличенная сочная волна (+10%),
+ * идеально сбалансированные и синхронизированные отступы между волной, кнопками плеера и краями.
  */
 public class MusicHud extends InterfaceProcessing {
 
-    public static final float SCALE = 0.80f;
+    public static final float SCALE = 0.72f;
 
     private static final float CARD_W = 142.0f;
     private static final float CARD_H = 42.0f;
 
     private static final float COVER = 30.0f;
     private static final float COVER_X = 6.0f;
-    private static final float COVER_Y = (CARD_H - COVER) * 0.5f;
+    private static final float COVER_Y = (CARD_H - COVER) * 0.5f; // 6.0f
 
-    private static final float TEXT_X = COVER_X + COVER + 6.0f; // 42.0f
-    private static final float CTRL_Y = CARD_H - 10.5f;
-    private static final float PLAY_CX = CARD_W - 22.0f;
-    private static final float PREV_CX = PLAY_CX - 13.0f;
-    private static final float NEXT_CX = PLAY_CX + 13.0f;
+    private static final float TEXT_X = 42.0f;
+    private static final float CTRL_Y = 30.5f;
+
+    // Синхронизированные отступы: обложка -> (7px) -> волна (45px) -> (7px) -> плеер (40px) -> (7px) -> край
+    private static final float WAVE_X = 43.0f;
+    private static final float WAVE_W = 45.0f;
+
+    private static final float PREV_CX = 101.0f;
+    private static final float PLAY_CX = 115.0f;
+    private static final float NEXT_CX = 129.0f;
 
     private static final int EQ_BARS = 9;
 
@@ -135,15 +141,15 @@ public class MusicHud extends InterfaceProcessing {
         double my = mc.mouse.getY() / mc.getWindow().getScaleFactor();
         boolean inScreen = mc.currentScreen != null;
 
-        // Локальные координаты мыши с учётом масштаба 0.8x
+        // Локальные координаты мыши с учётом масштаба
         double localMx = (mx - x) / scale;
         double localMy = (my - y) / scale;
 
         boolean cardHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, 0, 0, CARD_W, CARD_H);
         boolean coverHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, COVER_X, COVER_Y, COVER, COVER);
-        boolean playHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, PLAY_CX - 8, CTRL_Y - 8, 16, 16);
-        boolean prevHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, PREV_CX - 6, CTRL_Y - 6, 12, 12);
-        boolean nextHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, NEXT_CX - 6, CTRL_Y - 6, 12, 12);
+        boolean playHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, PLAY_CX - 8.0f, CTRL_Y - 8.0f, 16.0f, 16.0f);
+        boolean prevHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, PREV_CX - 7.0f, CTRL_Y - 7.0f, 14.0f, 14.0f);
+        boolean nextHovered = inScreen && HoveringUtils.isHovered(localMx, localMy, NEXT_CX - 7.0f, CTRL_Y - 7.0f, 14.0f, 14.0f);
 
         cardHoverAnim.update(cardHovered ? 1.0f : 0.0f);
         coverHoverAnim.update(coverHovered ? 1.0f : 0.0f);
@@ -159,7 +165,7 @@ public class MusicHud extends InterfaceProcessing {
         float pulse = 0.45f + 0.55f * (float) ((Math.sin(System.currentTimeMillis() * 0.0058) + 1.0) * 0.5);
         pulse = 0.35f + pulse * 0.65f * playing;
 
-        // Применяем масштабирование матрицы на 0.8x
+        // Применяем масштабирование матрицы
         matrices.push();
         matrices.translate(x, y, 0.0f);
         matrices.scale(scale, scale, 1.0f);
@@ -177,26 +183,19 @@ public class MusicHud extends InterfaceProcessing {
         // ================= ТЕКСТ =================
         Font titleFont = font(11);
         Font artistFont = font(9);
-        float textRight = CARD_W - 9.0f;
+        float textRight = CARD_W - 8.0f;
         float maxTextW = Math.max(20.0f, textRight - TEXT_X);
 
         drawMarquee(titleFont, matrices, title, TEXT_X, 5.0f, maxTextW, textColor, dt, isPlaying, x, y, scale);
         drawArtistLine(artistFont, matrices, artist, TEXT_X, 15.6f, maxTextW, subColor, theme, alpha, isPlaying);
 
-        // ================= УВЕЛИЧЕННЫЙ ЭКВАЛАЙЗЕР =================
-        float eqRight = PREV_CX - 8.0f;
-        drawEqualizer(matrices, tracker, TEXT_X, CTRL_Y, eqRight, theme, alpha, isPlaying);
+        // ================= УВЕЛИЧЕННЫЙ ЭКВАЛАЙЗЕР (+10%) =================
+        drawEqualizer(matrices, tracker, WAVE_X, CTRL_Y, theme, alpha, isPlaying);
 
-        // ================= КНОПКИ =================
-        float navAlpha = alpha * cardHoverAnim.getValue();
-        if (navAlpha > 0.02f) {
-            int prevColor = ColorUtils.interpolateColor(subColor, theme, prevHoverAnim.getValue());
-            int nextColor = ColorUtils.interpolateColor(subColor, theme, nextHoverAnim.getValue());
-            drawChevron(matrices, PREV_CX, CTRL_Y, false, ColorUtils.applyAlpha(prevColor, navAlpha));
-            drawChevron(matrices, NEXT_CX, CTRL_Y, true, ColorUtils.applyAlpha(nextColor, navAlpha));
-        }
-
+        // ================= ПЛЕЕР (СИНХРОНИЗИРОВАННЫЙ БЛОК УПРАВЛЕНИЯ) =================
+        drawPrevButton(matrices, PREV_CX, CTRL_Y, theme, alpha, prevHoverAnim.getValue());
         drawPlayButton(matrices, PLAY_CX, CTRL_Y, isPlaying, theme, alpha);
+        drawNextButton(matrices, NEXT_CX, CTRL_Y, theme, alpha, nextHoverAnim.getValue());
 
         // ================= НИЖНЯЯ ЛИНИЯ ПРОГРЕССА =================
         drawBottomProgress(matrices, track, 0, 0, theme, alpha);
@@ -226,7 +225,7 @@ public class MusicHud extends InterfaceProcessing {
         RenderUtils.drawRoundedRectOutline(matrices, x, y, CARD_W, CARD_H, 10.0f, 0.9f,
                 ColorUtils.applyAlpha(border, alpha));
 
-        // неоновые грани сверху и снизу
+        // Неоновые грани сверху и снизу
         RenderUtils.drawRoundedRect(matrices, x + 12.0f, y, 44.0f, 1.0f, 0.5f,
                 ColorUtils.applyAlpha(theme, alpha * 0.85f));
 
@@ -380,99 +379,135 @@ public class MusicHud extends InterfaceProcessing {
         }
     }
 
-    /** Увеличенный и сочный капсульный эквалайзер: 9 баров, повышенная высота (11.5f). */
+    /**
+     * Увеличенная на 10% волна эквалайзера (высота 13.0f, ширина бара 2.8f).
+     * Точно вписана в диапазон от WAVE_X (43px) до 88px (ширина 45px).
+     */
     private void drawEqualizer(MatrixStack matrices, MediaTracker tracker, float startX, float baseY,
-                               float maxRight, int theme, float alpha, boolean isPlaying) {
+                               int theme, float alpha, boolean isPlaying) {
         float[] bars = tracker.getVisualizerBars();
         if (bars == null || bars.length == 0) return;
 
-        float barW = 2.4f;
-        float gap = 1.8f;
-        float maxH = 11.5f;
+        float barW = 2.8f;
+        float gap = 2.475f;
+        float maxH = 13.0f; // +13% высоты волны
         long time = System.currentTimeMillis();
 
         for (int i = 0; i < EQ_BARS; i++) {
             float src = bars[Math.min(i, bars.length - 1)];
             float breathe = isPlaying ? 0.12f * (float) Math.sin(time * 0.011 + i * 0.8) : 0.0f;
             float value = MathHelper.clamp(src + breathe, 0.12f, 1.0f);
-            float h = Math.max(2.0f, value * maxH);
+            float h = Math.max(2.2f, value * maxH);
 
             float bx = startX + i * (barW + gap);
             float bottom = baseY + 4.5f;
 
-            // glow-подложка
-            RenderUtils.drawRoundedRect(matrices, bx - 0.7f, bottom - h - 0.7f, barW + 1.4f, h + 1.4f,
-                    (barW + 1.4f) * 0.5f,
-                    ColorUtils.applyAlpha(theme, alpha * 0.16f * value));
+            // Glow-подложка
+            RenderUtils.drawRoundedRect(matrices, bx - 0.8f, bottom - h - 0.8f, barW + 1.6f, h + 1.6f,
+                    (barW + 1.6f) * 0.5f,
+                    ColorUtils.applyAlpha(theme, alpha * 0.18f * value));
 
-            // капсула
+            // Капсула
             int top = ColorUtils.interpolateColor(theme, ColorUtils.rgba(255, 255, 255, 255), 0.55f);
             int bottomC = ColorUtils.darken(theme, 0.22f);
             RenderUtils.drawGradientRect(matrices, bx, bottom - h, barW, h, barW * 0.5f,
                     ColorUtils.applyAlpha(top, alpha * 0.95f),
-                    ColorUtils.applyAlpha(bottomC, alpha * 0.8f));
+                    ColorUtils.applyAlpha(bottomC, alpha * 0.80f));
 
-            // светящаяся точка на вершине
-            RenderUtils.drawRoundCircle(matrices, bx + barW * 0.5f, bottom - h, barW * 1.1f,
-                    ColorUtils.applyAlpha(ColorUtils.rgba(255, 255, 255, 255), alpha * 0.55f * value));
+            // Светящаяся неоновая точка на вершине
+            RenderUtils.drawRoundCircle(matrices, bx + barW * 0.5f, bottom - h, barW * 1.15f,
+                    ColorUtils.applyAlpha(ColorUtils.rgba(255, 255, 255, 255), alpha * 0.60f * value));
         }
     }
 
-    private void drawChevron(MatrixStack matrices, float cx, float cy, boolean right, int color) {
-        float angle = 36.87f;
-        float len = 5.0f;
-        float thick = 1.3f;
-        if (right) {
-            drawArm(matrices, cx, cy - 1.4f, angle, len, thick, color);
-            drawArm(matrices, cx, cy + 1.4f, -angle, len, thick, color);
-        } else {
-            drawArm(matrices, cx, cy - 1.4f, -angle, len, thick, color);
-            drawArm(matrices, cx, cy + 1.4f, angle, len, thick, color);
+    private void drawPrevButton(MatrixStack matrices, float cx, float cy, int theme, float alpha, float hover) {
+        if (hover > 0.01f) {
+            RenderUtils.drawRoundCircle(matrices, cx, cy, 12.0f,
+                    ColorUtils.applyAlpha(theme, alpha * 0.14f * hover));
+            RenderUtils.drawRoundCircle(matrices, cx, cy, 10.0f,
+                    ColorUtils.rgba(255, 255, 255, (int) (18 * alpha * hover)));
         }
+
+        int baseColor = ColorUtils.rgba(165, 170, 190, 255);
+        int activeColor = ColorUtils.interpolateColor(baseColor, theme, hover);
+        int col = ColorUtils.applyAlpha(activeColor, alpha * (0.55f + 0.45f * hover));
+
+        // Вертикальная черта слева
+        RenderUtils.drawRoundedRect(matrices, cx - 3.4f, cy - 3.2f, 1.2f, 6.4f, 0.5f, col);
+
+        // Стрелка влево
+        drawTriangle(matrices, cx + 2.8f, cy - 3.2f, cx - 1.4f, cy, cx + 2.8f, cy + 3.2f, col);
     }
 
-    private void drawArm(MatrixStack matrices, float cx, float cy, float angleDeg, float len, float thick, int color) {
-        matrices.push();
-        matrices.translate(cx, cy, 0.0f);
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(angleDeg));
-        RenderUtils.drawRoundedRect(matrices, -len * 0.5f, -thick * 0.5f, len, thick, thick * 0.5f, color);
-        matrices.pop();
+    private void drawNextButton(MatrixStack matrices, float cx, float cy, int theme, float alpha, float hover) {
+        if (hover > 0.01f) {
+            RenderUtils.drawRoundCircle(matrices, cx, cy, 12.0f,
+                    ColorUtils.applyAlpha(theme, alpha * 0.14f * hover));
+            RenderUtils.drawRoundCircle(matrices, cx, cy, 10.0f,
+                    ColorUtils.rgba(255, 255, 255, (int) (18 * alpha * hover)));
+        }
+
+        int baseColor = ColorUtils.rgba(165, 170, 190, 255);
+        int activeColor = ColorUtils.interpolateColor(baseColor, theme, hover);
+        int col = ColorUtils.applyAlpha(activeColor, alpha * (0.55f + 0.45f * hover));
+
+        // Стрелка вправо
+        drawTriangle(matrices, cx - 2.8f, cy - 3.2f, cx + 1.4f, cy, cx - 2.8f, cy + 3.2f, col);
+
+        // Вертикальная черта справа
+        RenderUtils.drawRoundedRect(matrices, cx + 2.2f, cy - 3.2f, 1.2f, 6.4f, 0.5f, col);
+    }
+
+    private void drawTriangle(MatrixStack matrices, float x1, float y1, float x2, float y2, float x3, float y3, int color) {
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableCull();
+        RenderSystem.setShader(ShaderProgramKeys.POSITION_COLOR);
+
+        float[] rgba = unpack(color);
+        Matrix4f matrix = matrices.peek().getPositionMatrix();
+        BufferBuilder buffer = Tessellator.getInstance().begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+        buffer.vertex(matrix, x1, y1, 0).color(rgba[0], rgba[1], rgba[2], rgba[3]);
+        buffer.vertex(matrix, x2, y2, 0).color(rgba[0], rgba[1], rgba[2], rgba[3]);
+        buffer.vertex(matrix, x3, y3, 0).color(rgba[0], rgba[1], rgba[2], rgba[3]);
+        BufferRenderer.drawWithGlobalProgram(buffer.end());
+        RenderSystem.disableBlend();
     }
 
     private void drawPlayButton(MatrixStack matrices, float cx, float cy, boolean isPlaying, int theme, float alpha) {
         float hover = playHoverAnim.getValue();
 
         float spin = (System.currentTimeMillis() * 0.09f) % 360.0f;
-        float ringD = 17.0f;
+        float ringD = 16.0f;
         float rx = cx - ringD * 0.5f;
         float ry = cy - ringD * 0.5f;
 
         if (isPlaying) {
             RenderUtils.drawRingArc(matrices, rx, ry, ringD, 1.1f, spin, spin + 70.0f,
-                    ColorUtils.applyAlpha(theme, alpha * (0.55f + 0.45f * hover)));
+                    ColorUtils.applyAlpha(theme, alpha * (0.60f + 0.40f * hover)));
             RenderUtils.drawRingArc(matrices, rx, ry, ringD, 1.1f, spin + 180.0f, spin + 250.0f,
-                    ColorUtils.applyAlpha(theme, alpha * (0.35f + 0.35f * hover)));
+                    ColorUtils.applyAlpha(theme, alpha * (0.40f + 0.30f * hover)));
         } else {
             RenderUtils.drawRingArc(matrices, rx, ry, ringD, 1.0f, 0.0f, 360.0f,
-                    ColorUtils.rgba(255, 255, 255, (int) ((20 + 40 * hover) * alpha)));
+                    ColorUtils.rgba(255, 255, 255, (int) ((20 + 35 * hover) * alpha)));
         }
 
-        RenderUtils.drawRoundCircle(matrices, cx, cy, 14.0f,
-                ColorUtils.applyAlpha(theme, alpha * (0.08f + 0.18f * hover)));
+        RenderUtils.drawRoundCircle(matrices, cx, cy, 13.0f,
+                ColorUtils.applyAlpha(theme, alpha * (0.08f + 0.20f * hover)));
 
         int core = ColorUtils.interpolateColor(
                 ColorUtils.rgba(14, 15, 23, (int) (240 * alpha)),
                 ColorUtils.rgba(32, 34, 48, (int) (245 * alpha)),
                 hover
         );
-        RenderUtils.drawRoundCircle(matrices, cx, cy, 11.0f, core);
+        RenderUtils.drawRoundCircle(matrices, cx, cy, 10.5f, core);
 
         int icon = ColorUtils.interpolateColor(theme, ColorUtils.rgba(255, 255, 255, 255), hover);
         icon = ColorUtils.applyAlpha(icon, alpha);
 
         if (isPlaying) {
-            RenderUtils.drawRoundedRect(matrices, cx - 1.9f, cy - 2.8f, 1.3f, 5.6f, 0.4f, icon);
-            RenderUtils.drawRoundedRect(matrices, cx + 0.6f, cy - 2.8f, 1.3f, 5.6f, 0.4f, icon);
+            RenderUtils.drawRoundedRect(matrices, cx - 1.8f, cy - 2.6f, 1.2f, 5.2f, 0.4f, icon);
+            RenderUtils.drawRoundedRect(matrices, cx + 0.6f, cy - 2.6f, 1.2f, 5.2f, 0.4f, icon);
         } else {
             drawPlayIcon(matrices, cx + 0.3f, cy, icon);
         }
@@ -546,24 +581,30 @@ public class MusicHud extends InterfaceProcessing {
         double localMx = (mouseX - x) / scale;
         double localMy = (mouseY - y) / scale;
 
-        if (HoveringUtils.isHovered(localMx, localMy, PLAY_CX - 8, CTRL_Y - 8, 16, 16)) {
+        // Кнопка Play/Pause
+        if (HoveringUtils.isHovered(localMx, localMy, PLAY_CX - 8.0f, CTRL_Y - 8.0f, 16.0f, 16.0f)) {
             MediaTracker.getInstance().togglePlayPause();
             return true;
         }
-        if (cardHoverAnim.getValue() > 0.3f) {
-            if (HoveringUtils.isHovered(localMx, localMy, PREV_CX - 6, CTRL_Y - 6, 12, 12)) {
-                MediaTracker.getInstance().prevTrack();
-                return true;
-            }
-            if (HoveringUtils.isHovered(localMx, localMy, NEXT_CX - 6, CTRL_Y - 6, 12, 12)) {
-                MediaTracker.getInstance().nextTrack();
-                return true;
-            }
+
+        // Предыдущий трек
+        if (HoveringUtils.isHovered(localMx, localMy, PREV_CX - 7.0f, CTRL_Y - 7.0f, 14.0f, 14.0f)) {
+            MediaTracker.getInstance().prevTrack();
+            return true;
         }
+
+        // Следующий трек
+        if (HoveringUtils.isHovered(localMx, localMy, NEXT_CX - 7.0f, CTRL_Y - 7.0f, 14.0f, 14.0f)) {
+            MediaTracker.getInstance().nextTrack();
+            return true;
+        }
+
+        // Клик по обложке (также пауза/плей)
         if (HoveringUtils.isHovered(localMx, localMy, COVER_X, COVER_Y, COVER, COVER)) {
             MediaTracker.getInstance().togglePlayPause();
             return true;
         }
+
         return false;
     }
 }
