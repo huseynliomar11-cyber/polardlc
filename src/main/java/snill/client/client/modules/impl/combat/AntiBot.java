@@ -2,6 +2,7 @@ package snill.client.client.modules.impl.combat;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -11,7 +12,6 @@ import net.minecraft.entity.effect.StatusEffects;
 import snill.client.api.events.EventLink;
 import snill.client.api.events.implement.EventUpdate;
 import snill.client.client.modules.Module;
-import snill.client.client.modules.settings.implement.ModeSetting;
 
 public class AntiBot extends Module {
 
@@ -19,23 +19,16 @@ public class AntiBot extends Module {
 
     public static final List<Entity> isBot = new ArrayList<>();
 
-    private static final String MODE_MATRIX = "Matrix";
-    private static final String MODE_DEFAULT = "Default";
-    private static final String MODE_CAKE_ARTY = "Cake/Arty";
-
-    private final ModeSetting mode = new ModeSetting("Режим", MODE_MATRIX, MODE_MATRIX, MODE_DEFAULT, MODE_CAKE_ARTY);
-
     public AntiBot() {
-        super("AntiBot", "Удаляет ботов от античита", ModuleCategory.COMBAT);
-        addSettings(mode);
+        super("AntiBot", "Универсальный антибот (Matrix / GrimAC / NPC)", ModuleCategory.COMBAT);
     }
 
     @EventLink
     public void onUpdate(EventUpdate event) {
-        this.newMatrix();
+        this.updateBots();
     }
 
-    public void newMatrix() {
+    public void updateBots() {
         if (mc.world == null || mc.player == null) return;
 
         for (PlayerEntity player : mc.world.getPlayers()) {
@@ -56,43 +49,32 @@ public class AntiBot extends Module {
     }
 
     private boolean isBotCandidate(PlayerEntity player) {
-        if (player == null) return false;
+        if (player == null || mc.player == null) return false;
 
-        if (mode.is(MODE_CAKE_ARTY)) {
-            return isCakeArtyBot(player);
-        }
-
-        // Core anticheat aura check: fake entities never exist in the tab list
-        if (isNotInTabList(player)) {
+        // 1. Главная проверка: фейковые энтити и боты античитов (Matrix/AAC/NPC) никогда не имеют записи в TabList
+        PlayerListEntry tabEntry = getTabListEntry(player);
+        if (tabEntry == null) {
             return true;
         }
 
-        // Invisible bait entities spawned around the player
+        // 2. Проверка ботов-приманок в невидимости:
+        // Настоящие игроки, выпившие зелье невидимости, есть в таб-листе и живут в мире долго.
+        // Боты от античитов (Matrix aura bot) спавнятся прямо перед/над игроком на 1-2 секунды (age < 80)
+        // без брони и с невалидным/нулевым пингом.
         if (isInvisibleTarget(player) && countArmorPieces(player) == 0) {
-            double distSq = mc.player.squaredDistanceTo(player);
-            if (distSq <= 25.0) {
-                return true;
+            if (player.age < 80 && mc.player.squaredDistanceTo(player) <= 25.0) {
+                if (tabEntry.getLatency() <= 0) {
+                    return true;
+                }
             }
         }
 
         return false;
     }
 
-    private boolean isNotInTabList(PlayerEntity player) {
-        if (mc.getNetworkHandler() == null) return false;
-        return mc.getNetworkHandler().getPlayerListEntry(player.getUuid()) == null;
-    }
-
-    private boolean isCakeArtyBot(PlayerEntity player) {
-        if (player == null) {
-            return false;
-        }
-
-        if (!isInvisibleTarget(player)) {
-            return false;
-        }
-
-        return countArmorPieces(player) == 0;
+    private PlayerListEntry getTabListEntry(PlayerEntity player) {
+        if (mc.getNetworkHandler() == null) return null;
+        return mc.getNetworkHandler().getPlayerListEntry(player.getUuid());
     }
 
     private boolean isInvisibleTarget(PlayerEntity player) {

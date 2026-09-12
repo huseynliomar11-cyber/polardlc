@@ -17,7 +17,7 @@ import snill.client.client.modules.settings.implement.FloatSetting;
 public class AirStuck extends Module {
     public static AirStuck INSTANCE = new AirStuck();
 
-    private final BooleanSetting lonyGriefBypass = new BooleanSetting("Стопить в тайминг", false);
+    private final BooleanSetting timingBypass = new BooleanSetting("Стопить в тайминг", false);
 
     public final BooleanSetting extraRangeEnabled = new BooleanSetting("Доп дистанция вкл", false);
     public final FloatSetting extraRange = new FloatSetting("Доп дистанция", 1.0f, 1.0f, 5.0f, 0.1f);
@@ -28,7 +28,7 @@ public class AirStuck extends Module {
 
     public AirStuck() {
         super("Air Stuck", "[Rage] Зависание в воздухе и доп. дистанция (Небезопасно для GrimAC)", ModuleCategory.MOVEMENT);
-        addSettings(lonyGriefBypass, extraRangeEnabled, extraRange);
+        addSettings(timingBypass, extraRangeEnabled, extraRange);
     }
     @Override
     public void onEnable() {
@@ -36,7 +36,7 @@ public class AirStuck extends Module {
         swapped = false;
 
         if (mc.player != null) {
-            if (!lonyGriefBypass.isState()) {
+            if (!timingBypass.isState()) {
                 freezePosition = mc.player.getPos();
                 frozen = true;
             }
@@ -84,7 +84,7 @@ public class AirStuck extends Module {
     public void onMove(final EventMove e) {
         if (mc.player == null) return;
 
-        if (lonyGriefBypass.isState() && !frozen) {
+        if (timingBypass.isState() && !frozen) {
             if (mc.player.fallDistance > 0.0F && mc.player.getVelocity().y < 0.0D) {
                 freezePosition = mc.player.getPos();
                 frozen = true;

@@ -28,7 +28,7 @@ public class ServerHelper extends Module {
 
     public static ServerHelper INSTANCE = new ServerHelper();
 
-    private final ModeSetting mode = new ModeSetting("Режим", "FunTime", "FunTime", "HolyWorld", "ReallyWorld", "LonyGrief", "Spooky");
+    private final ModeSetting mode = new ModeSetting("Режим", "FunTime", "FunTime", "HolyWorld", "ReallyWorld", "Spooky");
 
     private final BindSetting trapkaFT = new BindSetting("Трапка", -1).visible(() -> mode.is("FunTime"));
     private final BindSetting stunFT = new BindSetting("Стан", -1).visible(() -> mode.is("FunTime"));
@@ -45,10 +45,6 @@ public class ServerHelper extends Module {
 
     private final BindSetting antipoletRW = new BindSetting("Анти Полет", -1).visible(() -> mode.is("ReallyWorld"));
     private final BindSetting lovushkaRW = new BindSetting("Ловушка", -1).visible(() -> mode.is("ReallyWorld"));
-
-    private final BindSetting unictrapkaLG = new BindSetting("Уник. трапка", -1).visible(() -> mode.is("LonyGrief"));
-    private final BindSetting deflivaLG = new BindSetting("Деф лива", -1).visible(() -> mode.is("LonyGrief"));
-    private final BindSetting platformaLG = new BindSetting("Лива с платформой", -1).visible(() -> mode.is("LonyGrief"));
 
     private final BindSetting disorientationSP = new BindSetting("Дезориентация", -1).visible(() -> mode.is("Spooky"));
     private final BindSetting trapSP = new BindSetting("Трапка", -1).visible(() -> mode.is("Spooky"));
@@ -67,7 +63,6 @@ public class ServerHelper extends Module {
                 trapkaFT, stunFT, snowFT, dustFT, sphereFT,
                 stickHW, gulHW, stunHW, trapkaHW, snowHW, trapkHW,
                 antipoletRW, lovushkaRW,
-                unictrapkaLG, deflivaLG, platformaLG,
                 disorientationSP, trapSP, plastSP, pilSP, snegSP, auraSP
         );
     }
@@ -78,10 +73,6 @@ public class ServerHelper extends Module {
 
     public boolean isSpookyMode() {
         return mode.is("Spooky");
-    }
-
-    public boolean isLonyMode() {
-        return mode.is("LonyGrief");
     }
 
     public boolean isHolyWorldMode() {
@@ -96,7 +87,6 @@ public class ServerHelper extends Module {
         if (mode.is("FunTime")) return getFunTimeHelperBinds();
         if (mode.is("HolyWorld")) return getHolyWorldHelperBinds();
         if (mode.is("ReallyWorld")) return getReallyWorldHelperBinds();
-        if (mode.is("LonyGrief")) return getLonyHelperBinds();
         if (mode.is("Spooky")) return getSpookyHelperBinds();
         return List.of();
     }
@@ -106,7 +96,6 @@ public class ServerHelper extends Module {
         binds.addAll(getFunTimeHelperBinds());
         binds.addAll(getHolyWorldHelperBinds());
         binds.addAll(getReallyWorldHelperBinds());
-        binds.addAll(getLonyHelperBinds());
         binds.addAll(getSpookyHelperBinds());
         return binds;
     }
@@ -160,14 +149,6 @@ public class ServerHelper extends Module {
         return List.of(
                 new HelperBind("Анти Полет", Items.FIREWORK_STAR, antipoletRW),
                 new HelperBind("Ловушка", Items.HEART_OF_THE_SEA, lovushkaRW)
-        );
-    }
-
-    public List<HelperBind> getLonyHelperBinds() {
-        return List.of(
-                new HelperBind("Уник. трапка", Items.CRYING_OBSIDIAN, unictrapkaLG),
-                new HelperBind("Деф лива", Items.MAGMA_CREAM, deflivaLG),
-                new HelperBind("Лива с платформой", Items.CLAY_BALL, platformaLG)
         );
     }
 
@@ -229,13 +210,6 @@ public class ServerHelper extends Module {
             return;
         }
 
-        if (mode.is("LonyGrief")) {
-            if (key == unictrapkaLG.getKey()) pendingItem = Items.CRYING_OBSIDIAN;
-            else if (key == deflivaLG.getKey()) pendingItem = Items.MAGMA_CREAM;
-            else if (key == platformaLG.getKey()) pendingItem = Items.CLAY_BALL;
-            return;
-        }
-
         if (mode.is("Spooky")) {
             if (key == disorientationSP.getKey()) pendingAction = Action.DISORIENTATION_SP;
             else if (key == trapSP.getKey()) pendingAction = Action.TRAP_SP;
@@ -251,13 +225,6 @@ public class ServerHelper extends Module {
         if (mc.player == null || mc.world == null) {
             pendingItem = null;
             pendingAction = null;
-            return;
-        }
-
-        if (mode.is("LonyGrief")) {
-            if (pendingItem == null) return;
-            InventoryUtils.swapAndUseHvH(pendingItem);
-            pendingItem = null;
             return;
         }
 

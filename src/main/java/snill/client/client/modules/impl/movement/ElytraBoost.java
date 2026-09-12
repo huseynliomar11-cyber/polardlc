@@ -285,11 +285,4 @@ public class ElytraBoost extends Module {
         float[] yDown = {1.61f, 1.63f, 1.66f, 1.68f, 1.77f, 1.83f, 1.93f, 2.08f, 2.24f};
         for (int i = 0; i < 9; i++) { xzSpeeds[i].setValue(xz[i]); yUpSpeeds[i].setValue(yUp[i]); yDownSpeeds[i].setValue(yDown[i]); }
     }
-
-    private void applyLonyGriefPreset() {
-        float[] xz = {1.61f, 1.63f, 1.65f, 1.7f, 1.73f, 1.83f, 1.94f, 2.07f, 2.18f};
-        float[] yUp = {1.63f, 1.61f, 1.61f, 1.63f, 1.66f, 1.7f, 1.78f, 2.03f, 2.03f};
-        float[] yDown = {1.63f, 1.63f, 1.66f, 1.68f, 1.77f, 1.83f, 1.93f, 2.08f, 2.24f};
-        for (int i = 0; i < 9; i++) { xzSpeeds[i].setValue(xz[i]); yUpSpeeds[i].setValue(yUp[i]); yDownSpeeds[i].setValue(yDown[i]); }
-    }
 }
