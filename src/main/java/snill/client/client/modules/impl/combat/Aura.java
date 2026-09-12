@@ -91,7 +91,6 @@ public class Aura extends Module {
     public final BooleanSetting smartCrit = new BooleanSetting("Умные криты", false);
     public final BooleanSetting sprintReset = new BooleanSetting("Сброс спринта", true);
     private final BooleanSetting throughWalls = new BooleanSetting("Бить через стены", false);
-    private final BooleanSetting raycast = new BooleanSetting("Проверка на наведение", true);
     private final BooleanSetting unpressShield = new BooleanSetting("Отжимать щит", false);
     private final BooleanSetting breakShield = new BooleanSetting("Ломать щит", true);
     private final BooleanSetting attackOnEating = new BooleanSetting("Не бить когда ешь", true);
@@ -144,7 +143,7 @@ public class Aura extends Module {
     public Aura() {
         super("AttackAura", "[FunTime / HolyWorld / ReallyWorld / Spooky] Автоматическая атака с обходом античитов", ModuleCategory.COMBAT);
         addSettings(rotationType, targets, range, aimRange, elytraAimRange, smartCrit, sprintReset, syncTps,
-                attackOnEating, throughWalls, rwWallBypass, raycast, unpressShield, breakShield, clientLook, correctionType, priority);
+                attackOnEating, throughWalls, rwWallBypass, unpressShield, breakShield, clientLook, correctionType, priority);
     }
     @EventLink
     public void onPlayerTick(EventUpdate e) {
@@ -669,11 +668,21 @@ public class Aura extends Module {
         return throughWalls.isState() || rwWallBypass.isState() || mc.player.canSee(entity);
     }
 
+    private boolean isRaycastRequired() {
+        // Для HvH и NoRotate проверка отключается: мгновенные удары без ожидания прицела
+        if (rotationType.is("HvH") || rotationType.is("NoRotate")) {
+            return false;
+        }
+        // Для серверов с античитом (FunTime, HolyWorld, ReallyWorld, SpookyTime, SuperLegit)
+        // проверка наведения строго включена автоматически для 100% обхода GrimAC/Matrix
+        return true;
+    }
+
     private boolean shouldAttack() {
         if (mc.player.getAttackCooldownProgress(1.5f) < IdealHitUtils.getAICooldown()) return false;
         EntityHitResult result = getAttackRaycastResult();
         boolean aimOnTarget = isCurrentAimOnTarget();
-        if (raycast.isState() && !isUsingRwWallBypass() && !aimOnTarget) return false;
+        if (isRaycastRequired() && !isUsingRwWallBypass() && !aimOnTarget) return false;
         if (!throughWalls.isState() && !isUsingRwWallBypass() && !mc.player.canSee(target)) return false;
         if (isNeuroRotation() && !isUsingRwWallBypass() && !isDataAimReady(result, aimOnTarget)) return false;
         if (mc.player.isGliding() && target.isGliding()) {
